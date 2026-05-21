@@ -1,274 +1,290 @@
-# Feature Landscape: Distributed MPP Query Engines
+# Feature Landscape: Rust Testing for Octopus v1.2
 
-**Domain:** Distributed SQL Query Engines (Trino, Presto, Drill, Spark)
-**Researched:** 2026-04-22
-**Confidence:** MEDIUM-HIGH (based on official docs + ecosystem analysis)
+**Domain:** Unit/Integration Testing for Rust Distributed Query Engine
+**Project:** Octopus (v1.2 milestone: test coverage and code comments)
+**Researched:** 2026-05-21
+**Overall confidence:** MEDIUM-HIGH (Rust official docs + established ecosystem patterns)
+
+---
 
 ## Executive Summary
 
-Distributed MPP query engines are purpose-built for OLAP workloads on large datasets. They share a common coordinator-worker architecture but differ in execution models: Trino/Presto use **pipeline streaming** (data flows without materialization between stages), while Spark uses **batch** (materializes stages). The feature set can be categorized as:
+Rust testing follows a well-established pattern: unit tests co-located in `#[cfg(test)]` modules within source files, integration tests in `tests/` directory, and async tests via `#[tokio::test]`. The ecosystem provides mature tooling (mockall, tokio-test, proptest) for mocking and property-based testing. For Octopus, the testing challenge lies in async coordinator/executor code, DataFusion integration, and gRPC/Flight service mocking.
 
-- **Table stakes**: Features users expect as baseline — missing these means the product is incomplete
-- **Differentiators**: Features that provide competitive advantage — build these to stand out
-- **Anti-features**: Things to deliberately NOT build — these are either out-of-scope or handled by specialized tools
-
-## Table Stakes Features
-
-Features users expect. Missing these = product feels incomplete and unusable for OLAP workloads.
-
-### SQL Language Core
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| SELECT with projection, filtering | Basic SQL querying | Low | Must support standard SQL syntax |
-| WHERE clause with AND/OR/NOT | Data filtering | Low | Must support boolean expressions |
-| GROUP BY with aggregation | Data aggregation | Low | COUNT, SUM, AVG, MIN, MAX |
-| HAVING clause | Post-aggregation filtering | Low | Depends on GROUP BY |
-| ORDER BY with ASC/DESC | Result ordering | Low | NULL handling semantics matter |
-| LIMIT/OFFSET | Pagination | Low | Required for interactive queries |
-| JOIN operations (INNER, LEFT, RIGHT, FULL) | Data combining | Medium | Broadcast join for small tables |
-| Set operations (UNION, INTERSECT, EXCEPT) | Result combining | Low | Deduplication behavior varies |
-| Subqueries (scalar, table, correlated) | Complex logic | Medium | Not always fully optimized |
-| Common Table Expressions (CTE/WITH) | Query organization | Low | Improves readability significantly |
-| CASE expressions (COALESCE, NVL) | Conditional logic | Low | Essential for data transformation |
-
-### Advanced SQL Capabilities
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Window functions (ROW_NUMBER, RANK, DENSE_RANK, LEAD, LAG) | Analytical queries | Medium | Core OLAP capability |
-| Aggregate functions with FILTER (COUNT(*) FILTER WHERE...) | Advanced aggregation | Medium | PostgreSQL-compatible syntax |
-| APPROX_PERCENTILE, APPROX_DISTINCT | Large-scale aggregation | Medium | Sketch-based algorithms |
-| Date/time functions (date_trunc, EXTRACT, date_diff) | Temporal analysis | Low | Essential for time-series |
-| String functions (SUBSTR, CONCAT, REGEXP) | Data cleaning | Low | Variety matters |
-| Type conversion functions (CAST, TRY_CAST) | Data handling | Low | Error handling varies |
-
-### Data Sources & Formats
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Parquet file support | Standard analytical format | Medium | Columnar, compressed |
-| CSV/TSV file support | Common data exchange | Low | Header handling, delimiters |
-| JSON file support | Semi-structured data | Medium | Nested JSON parsing |
-| S3-compatible storage | Cloud data lakes | Medium | AWS S3, MinIO, etc. |
-| HDFS support | Hadoop ecosystem | Medium | Kerberos authentication |
-| Local filesystem | Development/testing | Low | Development convenience |
-| PostgreSQL connector | RDBMS federation | Medium | Query pushdown important |
-| MySQL connector | RDBMS federation | Medium | Feature parity varies |
-
-### Distributed Execution
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Coordinator-worker architecture | Horizontal scaling | High | Core architectural pattern |
-| Distributed query planning | Multi-node execution | High | Fragment-based plan representation |
-| Data partitioning awareness | Locality-aware scheduling | High | Reduces network traffic |
-| Exchange operators (shuffle, broadcast) | Data movement | High | Network-bound operations |
-| Parallel table scan | Parallel I/O | Medium | Split creation per file/partition |
-| Hash aggregation/distribution | Parallel grouping/joining | Medium | Memory pressure management |
-| Memory management per node | Resource safety | High | Spill-to-disk for large ops |
-
-### Security
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| Authentication (password, Kerberos) | Access control | Medium | LDAP/Active Directory integration |
-| Authorization ( GRANT/REVOKE) | Row/column security | Medium | Ranger/Starburst support |
-| SSL/TLS for connections | Transport security | Low | Encrypt data in transit |
-| Query result caching | Performance | Medium | Partial results, invalidation |
-
-### Observability
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| EXPLAIN (query plan) | Query debugging | Low | Distributed EXPLAIN important |
-| Query metrics (CPU, memory, rows) | Performance tuning | Medium | Per-stage metrics |
-| Distributed query profile | Deep troubleshooting | High | Visual plan analysis |
-| Logging (query, access, error) | Audit and debug | Low | Log levels matter |
-
-### Client Interfaces
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| JDBC driver | BI tool compatibility | Medium | Type 4 driver standard |
-| CLI (command-line interface) | Developer experience | Low | Interactive and batch modes |
-| HTTP/REST API | Thin client, integration | Low | Web-based tooling |
-| SQLAlchemy integration | Python ecosystem | Low | Pandas integration via SQL |
+**Key finding:** Octopus currently has NO tests (confirmed via file search). The testing surface is straightforward: scheduler logic, query service state transitions, UDF registry, federated connector traits, and exchange sender/receiver pairs. Complexity is not in test patterns but in mocking async services and Arrow Flight data flows.
 
 ---
 
-## Differentiators
+## Table Stakes (Expected in Well-Tested Rust Projects)
 
-Features that set products apart. Not expected, but valued. Build these for competitive advantage.
+These features are standard Rust testing conventions. Missing them signals an incomplete or immature project.
 
-### Query Optimization Sophistication
+| Feature | Why Expected | Complexity | Notes |
+|---------|--------------|------------|-------|
+| **Unit tests in `#[cfg(test)]` modules** | Standard Rust pattern. Tests live next to code they test, in same module. | LOW | Use `use super::*` to access parent items |
+| **`#[test]` attribute on test functions** | Cargo convention. Functions annotated `#[test]` become test cases. | LOW | Tests that panic fail; returning `Ok(())` passes |
+| **`#[tokio::test]` for async tests** | Tokio provides test runtime for async code. | LOW-MED | Required for any `async fn` test; uses multi-thread runtime |
+| **Integration tests in `tests/` directory** | Cargo convention. Each `.rs` file in `tests/` compiles as separate test binary. | LOW | Use `use crate_name::*` to access library items |
+| **`#[should_panic]` for expected panics** | Verify error paths fail with expected messages. | LOW | Use `expected = "substring"` for precise matching |
+| **`assert_eq!`/`assert_ne!` with `PartialEq` + `Debug`** | Standard assertions on custom types. | LOW | Always derive both traits on test-supporting types |
+| **Mocking with `#[automock]`** | Trait mocking via mockall. Generates `Mock*` structs from traits. | LOW-MED | Place on trait definitions; use `MockStruct::new()` |
+| **`#[ignore]` for flaky/slow tests** | Mark tests to skip in normal runs. CI runs with `--ignored`. | LOW | Use for integration tests hitting real services |
+| **Custom failure messages in assertions** | Add context to assertion failures. | LOW | `assert!(cond, "expected X but got Y")` |
 
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Cost-based optimizer (CBO) | Better plan selection | Very High | Statistics-based |
-| Adaptive query planning | Handle runtime surprises | High | Re-plan based on actual data |
-| Predicate pushdown | Filter early, reduce data | High | File-level, row-level, column pruning |
-| Projection pushdown | Read only needed columns | Medium | Parquet column pruning |
-| Aggregation pushdown | Push to data source | High | Leverage source capabilities |
-| Join reorder with dynamic filtering | Optimal join ordering | High | Bushy plans for complex joins |
-| Distributed memory-aware planning | Avoid OOM on large queries | Very High | Inter-node memory pressure |
-
-### Lakehouse & Schema Evolution
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Apache Iceberg support | Open table format, time travel | High | ACID transactions, partition evolution |
-| Delta Lake support | ACID on data lakes | High | Databricks ecosystem |
-| Hudi support | Incremental processing | High | CDC patterns |
-| Schema evolution/drift handling | Evolving data | Medium | ALTER TABLE additions |
-| Time travel queries | Historical data access | Medium | Snapshot isolation |
-
-### Advanced SQL & Semi-Structured Data
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Nested data access (arrays, maps) | Schema flexibility | High | FLATTEN, KVGEN functions |
-| Complex type constructors | Array/map construction | Medium | ARRAY[], MAP[] |
-| Lateral joins | Correlated subqueries | High | UNNEST with correlations |
-| PIVOT/UNPIVOT | Cross-tab analysis | Medium | Rotation transformations |
-| MATCH_RECOGNIZE | Pattern matching | High | Complex event processing |
-| Geospatial functions (ST_*) | GIS analytics | Medium | PostGIS-compatible |
-| Row-level security | Multi-tenant isolation | Medium | Policy-based access |
-
-### Connector Ecosystem
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| 40+ connector ecosystem (Trino) | Query everything | High | breadth of data sources |
-| Elasticsearch/OpenSearch | Full-text search queries | Medium | Query pushdown |
-| Kafka (read-only for now) | Log analysis | Medium | Not real-time streaming |
-| Redis/Memcached | Cache integration | Low | Key-value lookups |
-| Snowflake/BigQuery/Redshift | Cloud data warehouses | Medium | Query federation |
-| Apache Druid | Timeseries data | Medium | Pre-aggregated data |
-
-### Performance & Resource Management
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Pipeline execution (Trino-style) | Low latency, no stage materialization | Very High | Core architectural differentiator |
-| Vectorized execution | SIMD, cache-friendly | Very High | Column-at-a-time processing |
-| Memory-aware operators | Graceful degradation | High | Spill to disk for large sorts |
-| Concurrency limits | Multi-tenant fairness | Medium | Query queuing |
-| Resource groups | Workload management | Medium | Priority-based scheduling |
-| Result caching (distributed) | Repeated query speedup | High | Invalidation strategies |
-| Prepared statements | Plan reuse, security | Low | Reduces parsing overhead |
-
-### UDF/UDTF Extensibility
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Scalar UDFs | Custom transformations | Low | Per-row operations |
-| Aggregate UDAFs | Custom aggregations | Medium | Multi-phase aggregation |
-| Table UDTFs | Lateral view generation | Medium | Returns dynamic result sets |
-| JavaScript/Python UDFs | Language flexibility | High | Security sandboxing |
-| Inline function definitions | Rapid prototyping | Low | CREATE FUNCTION in query |
-
-### High Availability
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| Multi-coordinator | Coordinator HA | High | Active-passive or Raft |
-| Graceful coordinator failover | Query continuity | High | Re-attempt running queries |
-| Worker failure handling | Partial query retry | Medium | Fast-fail vs checkpoint |
-| ZooKeeper-less coordination | Simplified ops | High | Self-hosted Raft |
+**Confidence: HIGH** — These are Rust book-standard patterns, well-documented at doc.rust-lang.org.
 
 ---
 
-## Anti-Features
+## Differentiators (What Sets Professional Projects Apart)
 
-Features to explicitly NOT build. These are out-of-scope or handled by specialized tools.
+These elevate code quality and signal engineering maturity. Not required for v1.2 but recommended for long-term.
 
-| Anti-Feature | Why Avoid | What To Do Instead |
+| Feature | Value Proposition | Complexity | When to Use |
+|---------|-------------------|------------|-------------|
+| **Property-based testing (proptest)** | Generates hundreds of random inputs automatically. Catches edge cases human testers miss. | MED | Critical algorithms: hashing, serialization, scheduling heuristics |
+| **Code coverage tracking (cargo-llvm-cov)** | Visual HTML report shows which lines are exercised. Target >80% for core logic. | LOW | Run `cargo llvm-cov --html` after tests exist |
+| **Mutation testing (cargo-mutant)** | Injects bugs to verify tests catch them. Validates test quality. | HIGH | After basic tests exist; too noisy for early stage |
+| **Criterion benchmarks (criterion-rs)** | Measures performance regression in CI. | MED | Critical paths: query parsing, exchange serialization, scheduler hot path |
+| **State machine testing (proptest-state)** | Model-based state transition testing. | MED-HIGH | Query state machine, task lifecycle, connection pool transitions |
+| **Mockall static method mocking** | Handle `fn static_method(&self)` vs `fn static_method()` differently via `Context`. | MED | Required for factory traits with static methods |
+| **`tokio-test`'s `MockStream` for async** | Test async streams without real I/O. | MED | Exchange sender/receiver pairs |
+| **Doc tests in Rustdoc comments** | Examples in `///` comments become tests. | LOW | Add `assert_eq!` to existing Rustdoc examples |
+
+**Confidence: MEDIUM** — Advanced tooling, well-documented, adoption varies by project maturity.
+
+---
+
+## Anti-Features (Explicitly NOT Building for v1.2)
+
+Features that are out-of-scope, inappropriate for Octopus, or require infrastructure not available in v1.2.
+
+| Anti-Feature | Why Avoid | What to Do Instead |
 |--------------|-----------|-------------------|
-| OLTP/Transaction processing | Not designed for high-frequency single-row updates | Use PostgreSQL, MySQL for OLTP |
-| Full ACID transactions across sources | Distributed 2PC is slow, not needed for analytics | Single-source transactions via connectors |
-| Real-time Kafka streaming | Requires incremental ingestion, not batch queries | Use Flink, Kafka Streams for streaming |
-| Native graph processing | Not optimized for graph traversal | Use Neo4j, GraphX for graph |
-| ML/AI model training | Separate workload, different optimization | Use MLlib, TensorFlow on Spark |
-| Fine-grained checkpoint recovery | Complexity outweighs benefit for OLAP | Fast-fail with task retry |
-| Graphical query builder | Not primary interface | Leave for BI tool integration |
-| Multi-language SDK | HTTP API sufficient for v1 | Avoid complexity of Python/Go/JS SDKs |
-| Real-time incremental processing | CDC patterns, watermark management | Batch-first, defer to streaming systems |
-| General-purpose database replacement | Different use case, different tradeoffs | Integrate via connectors |
+| **cargo-insta (snapshot testing)** | Good for UI/text output. Not relevant for query engine state/logic. | Use explicit `assert_eq!` on structured types |
+| **rstest (parameterized tests)** | Overkill for Octopus. Simple `#[test]` with loop is sufficient. | Loop over test cases: `for case in [...] { assert!(...) }` |
+| **testcontainers for real DB** | Heavy dependency, requires Docker daemon. Out of scope for unit tests. | Mock `ConnectionPool` trait for unit tests; integration tests can use testcontainers later |
+| **Golden file tests for query plans** | Fragile. Query plan text changes with DataFusion optimizer versions. | Test plan structure (stages, partitions) not exact text output |
+| **Load/stress testing** | Requires multi-node cluster. Out of scope for unit/integration testing. | Defer to Phase 5 (Fault Tolerance) |
+| **fuzz testing (cargo-fuzz)** | Requires stable SQL parser surface. Too early for v1.2. | Defer to v1.3 when SQL surface is stable |
+
+**Confidence: HIGH** — Based on Octopus milestone scope (v1.2 = test coverage, not new features).
+
+---
+
+## Octopus Crate-Specific Test Surface
+
+Each crate has distinct testing needs based on its responsibilities. No existing tests found in any crate.
+
+### `octopus-common`
+
+| Module | Test Surface | Priority | Complexity | Dependencies |
+|--------|--------------|----------|------------|--------------|
+| `udf.rs` | UDF registration, listing, removal | HIGH | LOW | None (isolated) |
+| `federated.rs` | TypeAdapter, ConnectionPool, FederatedConnector traits | HIGH | LOW-MED | Mock implementations via mockall |
+| `error.rs` | Error conversion, error chain | MED | LOW | None |
+
+**Recommended approach:**
+- `UdfRegistry` tests: Direct instantiation, register/list/unregister with mock scalar UDFs
+- Trait tests: Implement `#[automock]` on traits, create mock structs for testing other modules
+
+### `octopus-coordinator`
+
+| Module | Test Surface | Priority | Complexity | Dependencies |
+|--------|--------------|----------|------------|--------------|
+| `scheduler.rs` | Task creation, locality-aware assignment, completion | HIGH | LOW | None (pure async logic) |
+| `query_service.rs` | State transitions (Received→Planning→Planned→Executing→Completed/Failed) | HIGH | LOW-MED | Mock QueryScheduler with mockall |
+| `stage_planner.rs` | Stage DAG creation, pipeline breaker detection | MED | MED | DataFusion `LogicalPlan` fixtures |
+| `task_tracker.rs` | Task state tracking, rescheduling decisions | MED | MED | Mock worker registry |
+| `exchange_operator.rs` | Exchange operator insertion in plans | MED | MED | DataFusion plan comparison |
+| `worker_registry.rs` | Worker registration, listing, heartbeat | MED | LOW | None (in-memory HashMap) |
+| HTTP handlers | `/query/submit`, `/query/explain`, `/query/state/{id}` | MED | MED-HIGH | `axum` test utilities or `tower::service::mock` |
+
+**Recommended approach:**
+- `scheduler.rs`: Standard unit tests with `use super::*`
+- `query_service.rs`: `#[tokio::test]` with `MockQueryScheduler` via mockall
+- HTTP handlers: Use `axum` companion crate `axum-testing` or raw tower service mocking
+
+### `octopus-executor`
+
+| Module | Test Surface | Priority | Complexity | Dependencies |
+|--------|--------------|----------|------------|--------------|
+| `query.rs` | Query execution with DataFusion | MED | MED | DataFusion `SessionContext` with test object store |
+| `datasource.rs` | DataSource trait implementation | MED | MED | Mock `ObjectStore` or test files |
+| `exchange_receiver.rs` | Arrow Flight data receiving | MED | MED | `#[tokio::test]` with in-memory channel |
+| `exchange_sender.rs` | Arrow Flight data sending | MED | MED | `#[tokio::test]` with in-memory channel |
+| `session.rs` | Session state management | MED | LOW | None (simple state) |
+| `logging.rs` | Logging configuration | LOW | LOW | None |
+
+**Recommended approach:**
+- `query.rs`: Use DataFusion's built-in test utilities; test against Parquet/CSV in temp directory
+- Exchange sender/receiver: Use `tokio::sync::mpsc` channels as stand-ins for Arrow Flight streams
+
+### `octopus-worker`
+
+| Module | Test Surface | Priority | Complexity | Dependencies |
+|--------|--------------|----------|------------|--------------|
+| Task execution | Worker task loop, task polling | MED | MED-HIGH | Mock coordinator client |
+| Flight server | Arrow Flight server startup/shutdown | MED | MED | `#[tokio::test]` with in-memory transport |
+
+**Recommended approach:** Mock `CoordinatorClient` with mockall; test task execution in isolation
+
+### `octopus-cli`
+
+| Module | Test Surface | Priority | Complexity | Dependencies |
+|--------|--------------|----------|------------|--------------|
+| CLI argument parsing | clap derive parsing | LOW | LOW | Standard clap test patterns |
+| REPL mode | Command parsing, history | LOW | MED | Mock coordinator client |
 
 ---
 
 ## Feature Dependencies
 
 ```
-SQL Core (SELECT, GROUP BY, JOIN) → Window Functions
-                                → Aggregate Functions
-                                → Set Operations
+Phase 1: Infrastructure
+    │
+    ├─► mockall dependency added to Cargo.toml dev-dependencies
+    │
+    ├─► tokio-test dependency added
+    │
+    └─► PartialEq + Debug derives added to test-supporting types
 
-Distributed Execution → Exchange Operators
-                     → Memory Management
-                     → Query Planning
+Phase 2: Unit Tests
+    │
+    ├─► octopus-common tests (udf, federated traits)
+    │
+    ├─► octopus-coordinator tests (scheduler, query_service)
+    │
+    ├─► octopus-executor tests (query execution basics)
+    │
+    └─► Integration test files in tests/ directory
 
-Connectors → Predicate Pushdown
-           → Type Conversion
-           → Federated Queries
-
-Lakehouse Support → Iceberg/Delta/Hudi Metadata
-                 → Time Travel
-                 → Schema Evolution
-
-Pipeline Execution → Exchange Operators (no materialization)
-                  → Streaming Aggregation
-                  → Continuous Optimization
+Phase 3: Advanced Testing (defer to v1.3+)
+    │
+    ├─► property-based tests for scheduler heuristics
+    │
+    ├─► criterion benchmarks for hot paths
+    │
+    └─► coverage tracking with cargo-llvm-cov
 ```
 
 ---
 
-## MVP Recommendation
+## MVP Recommendation for v1.2
 
-Prioritize in this order for a working OLAP engine:
+**Priority order (by dependency and risk):**
 
-### Phase 1: Core (Must Have)
-1. SQL SELECT, WHERE, GROUP BY, ORDER BY, LIMIT
-2. Basic aggregates (COUNT, SUM, AVG, MIN, MAX)
-3. JOIN operations (broadcast hash join)
-4. Parquet + CSV file support
-5. S3 storage connector
-6. Coordinator-worker distributed execution
-7. Pipeline exchange operators
-8. Basic memory management
-9. JDBC driver
-10. CLI interface
+### Tier 1 (Foundational - start here)
 
-### Phase 2: Essential (Table Stakes)
-1. Window functions (ROW_NUMBER, RANK, LEAD, LAG)
-2. Additional connectors (PostgreSQL, MySQL)
-3. Window functions with frames
-4. EXPLAIN (distributed query plan)
-5. Date/time functions
-6. String manipulation functions
-7. Type casting
-8. CASE/NULL handling
-9. CTE support
-10. Basic query metrics
+1. **`octopus-coordinator::scheduler`** — Task creation, locality scoring, round-robin fallback
+   - Complexity: LOW
+   - Pattern: `#[cfg(test)] mod tests { use super::*; #[test] fn ... }`
+   - No mocking needed: pure logic with in-memory HashMap
 
-### Phase 3: Differentiators (Competitive Edge)
-1. Cost-based optimizer rules
-2. Iceberg connector + time travel
-3. Advanced pushdown (predicate, aggregation)
-4. Dynamic filtering
-5. UDF/UDTF support
-6. Resource groups / query queuing
-7. Memory-aware operators with spill
-8. Prepared statements
-9. Multi-coordinator HA
+2. **`octopus-common::udf`** — UDF registry operations
+   - Complexity: LOW
+   - Pattern: Direct instantiation with mock `ScalarUDF` (use DataFusion's `lit()` as test UDF)
+
+### Tier 2 (State management - depends on Tier 1)
+
+3. **`octopus-coordinator::query_service`** — State machine transitions
+   - Complexity: LOW-MED
+   - Pattern: `#[tokio::test]` with `#[automock]` on `QueryScheduler` trait
+   - Use mockall to create `MockQueryScheduler` for controlled testing
+
+4. **`octopus-coordinator::task_tracker`** — Task state tracking
+   - Complexity: MED
+   - Pattern: `#[tokio::test]` with mock worker registry
+
+### Tier 3 (Trait-based - requires mocking infrastructure)
+
+5. **`octopus-common::federated`** — Connector trait tests
+   - Complexity: MED (trait mocking)
+   - Pattern: `#[automock]` on `TypeAdapter`, `ConnectionPool`, `FederatedConnector`
+   - Implement `MockConnectionPool` for testing other modules
+
+### Tier 4 (Integration - depends on all above)
+
+6. **HTTP API integration tests** — Coordinator endpoints
+   - Complexity: MED-HIGH
+   - Pattern: `axum::test::TestClient` or `tower::service::mock`
+   - Test: submit query, explain query, get query state
+
+7. **Exchange sender/receiver tests** — Arrow Flight data flow
+   - Complexity: MED
+   - Pattern: `#[tokio::test]` with `tokio::sync::mpsc` as in-memory transport
+
+**Defer to v1.3:**
+- Property-based testing (scheduler heuristics need to stabilize first)
+- Criterion benchmarks (require stable hot paths)
+- Mutation testing (requires existing test coverage to be meaningful)
+- Fuzz testing (SQL surface not yet stable)
+
+---
+
+## Rustdoc Expectations for Octopus
+
+Well-documented Rust projects have Rustdoc on all public items. Octopus already has some Rustdoc (confirmed in `federated.rs`).
+
+**Standard Rustdoc pattern:**
+```rust
+/// Query service handles SQL submission, planning, and state management.
+///
+/// # State Machine
+/// Queries transition through: Received → Planning → Planned → Executing → Completed/Failed
+///
+/// # Example
+/// ```
+/// # use octopus_coordinator::{QueryService, QueryState};
+/// # async fn example() {
+///     let scheduler = Arc::new(RwLock::new(QueryScheduler::new(registry)));
+///     let service = QueryService::new(scheduler);
+///     let query_id = service.submit_query("SELECT * FROM tbl").await?;
+///     assert_eq!(service.get_query_state(&query_id).await, Some(QueryState::Received));
+/// # }
+/// ```
+pub struct QueryService { ... }
+```
+
+**v1.2 Rustdoc targets:**
+- All `pub struct`, `pub enum`, `pub fn` in coordinator and executor crates
+- Key trait definitions in `federated.rs` (already documented)
+- Module-level `//!` docs for each source file
 
 ---
 
 ## Sources
 
-- [Trino Documentation (Official)](https://trino.io/docs/current/) — HIGH confidence
-- [Presto Documentation (Official)](https://prestodb.io/docs/current/) — HIGH confidence
-- [Apache Drill Documentation (Official)](https://drill.apache.org/docs/) — HIGH confidence
-- [Apache Spark Documentation (Official)](https://spark.apache.org/docs/4.1.1/) — HIGH confidence
-- [Trino SQL Functions Reference](https://github.com/trinodb/trino/blob/master/docs/src/main/sphinx/functions/window.md) — HIGH confidence
+### Primary (HIGH confidence)
+- [The Rust Programming Language - Testing Chapter](https://doc.rust-lang.org/book/ch11-00-testing.html) — Official testing guide
+- [The Rust Programming Language - Writing Tests (ch11-01)](https://doc.rust-lang.org/book/ch11-01-writing-tests.html) — `#[test]`, assertions, `#[should_panic]`
+- [Tokio Testing Documentation](https://docs.rs/tokio/latest/tokio/#testing) — `#[tokio::test]` and test utilities
+- [Mockall Documentation](https://docs.rs/mockall/latest/mockall/) — `#[automock]` for trait mocking
+
+### Secondary (MEDIUM confidence)
+- [tokio-test crate](https://docs.rs/tokio-test/latest/tokio_test/) — Async test utilities (`MockStream`, `assert_stream_eq`)
+- [proptest crate](https://docs.rs/proptest/latest/proptest/) — Property-based testing
+- [cargo-llvm-cov](https://docs.rs/cargo-llvm-cov/latest/cargo_llvm_cov/) — Code coverage tracking
+- [axum testing guide](https://docs.rs/axum/latest/axum/#testing) — HTTP handler testing patterns
+
+### Tertiary (LOW confidence - inferential)
+- [DataFusion/Ballista test patterns](https://github.com/apache/arrow-datafusion) — How production Rust query engines test
+
+---
+
+## Confidence Assessment
+
+| Area | Confidence | Reason |
+|------|------------|--------|
+| Table stakes (std Rust patterns) | HIGH | Rust testing is well-standardized, documented |
+| Octopus-specific test surface | MEDIUM-HIGH | Code inspection confirms modules exist; no existing tests |
+| Complexity estimates | MEDIUM | Based on similar async/gRPC projects |
+| Tooling recommendations | MEDIUM | Ecosystem mature; specific tool choices may vary by team |
+
+**Overall confidence:** MEDIUM-HIGH
+
+### Gaps to Address During Implementation
+
+- **gRPC/Flight service mocking**: Specific patterns for testing tonic services and Arrow Flight servers need spike during implementation
+- **DataFusion test helpers**: How to set up `SessionContext` for testing without hitting production object stores (use tempdir + test Parquet files)
+- **Test HTTP server setup**: `axum::test::TestClient` vs tower `MockSvc` vs spinning up real server on random port
+- **Mock coordinator client for worker tests**: Need to define `#[automock]` trait for `CoordinatorClient` to test worker in isolation

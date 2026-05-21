@@ -1,164 +1,236 @@
-# Project Research Summary
+# Research Summary: Octopus v1.2 - Testing & Documentation
 
-**Project:** Octopus — Distributed MPP Query Engine
-**Domain:** Distributed SQL Query Engines (Trino-style streaming OLAP)
-**Researched:** 2026-04-22
-**Confidence:** HIGH
+**Project:** Octopus Distributed MPP Query Engine
+**Milestone:** v1.2 - Test Coverage & Code Comments
+**Research Date:** 2026-05-21
+**Synthesized From:** STACK.md, FEATURES.md, ARCHITECTURE.md, PITFALLS.md
+
+---
 
 ## Executive Summary
 
-Octopus is a distributed MPP query engine built on Apache DataFusion, targeting Trino-style streaming/pipeline execution rather than Spark's batch model. The architecture follows a coordinator-worker pattern where the coordinator parses SQL, creates a stage DAG with Exchange operators, and assigns tasks to workers; workers execute in parallel and exchange intermediate data via Arrow Flight. The stack is Rust-native: DataFusion 53.x for query execution, tonic 0.14 for gRPC control plane, arrow-flight 58 for high-speed data transfer, and Tokio 1.52 as the async runtime.
+Octopus v1.2 adds comprehensive unit tests, integration tests, and Rustdoc documentation to the existing distributed MPP query engine. The existing Tokio 1.52 runtime and DataFusion 43 stack provide a solid foundation requiring no major technology changes. The focus is on test utilities (mockall for trait mocking, tempfile for file operations, tower-test for HTTP/gRPC service testing) that integrate cleanly with the existing async/Tokio/DataFusion/Axum stack.
 
-**Recommended approach:** Start with single-node DataFusion for SQL parsing and execution, then layer distributed planning (Exchange operators, stage DAG) on top. The critical insight from research is that pipeline breakers (full sort, hash aggregation with multiple groups) must be handled explicitly — they block streaming and cause memory issues. Separate Tokio runtimes for CPU-bound compute and I/O-bound Flight operations are essential from day one.
+The project currently has **zero tests** despite #[cfg(test)] infrastructure in place. The testing surface is well-defined: scheduler logic, query service state machine, UDF registry operations, federated connector traits, and exchange sender/receiver pairs. Complexity lies not in test patterns but in mocking async services and Arrow Flight data flows.
 
-**Key risks:** Pipeline breaker ignorance causes hangs; Tokio runtime contention causes p99 latency spikes; Arrow Flight batch size mismanagement causes OOM; Exchange operator deadlock causes hangs with no error messages. These are all addressable with proper design, but must be architected in from the start.
+Critical risks include blocking the Tokio runtime with sync I/O, shared mutable SessionContext state across parallel tests, deadlocks in multi-stage async pipelines, and over-mocking DataFusion internals. Prevention strategies are well-documented in PITFALLS.md and should guide implementation.
+
+---
 
 ## Key Findings
 
-### Recommended Stack
+### From STACK.md
 
-Octopus builds on proven Apache DataFusion ecosystem with a clean separation between control plane (gRPC via Tonic) and data plane (Arrow Flight). The stack mirrors Ballista's architecture but targets streaming/pipeline execution.
+**Core Test Framework:**
+- tokio 1.52 and tokio-test 0.4 already in workspace
+- #[tokio::test] macro is the standard for async Rust testing
 
-**Core technologies:**
-- **DataFusion 53.x**: Production-grade extensible query engine — SQL parsing, optimization, execution. Non-negotiable.
-- **Tokio 1.52**: Async runtime with `rt_multi_thread` for workers, `spawn_blocking` for CPU-intensive ops. Must configure separate runtimes for CPU vs I/O.
-- **tonic 0.14 + prost 0.14**: gRPC framework and protobuf code generation. Standard for Rust.
-- **arrow-flight 58.1.0**: High-speed columnar data transfer via gRPC streams. Zero-copy where possible.
-- **sqlx 0.8**: Async database driver with compile-time checked queries for metadata storage. Plugable trait architecture.
-- **object_store 0.13**: Unified S3/HDFS/Azure/GCS access. Used by DataFusion.
+**Mocking Infrastructure:**
+- mockall 0.13 for trait mocking with native async trait support
+- #[automock] attribute generates Mock* structs from traits
+- Supports async_trait::async_trait interfaces (UdfRegistry, FederatedConnector)
 
-### Expected Features
+**Integration Testing:**
+- tower-test 0.4 for HTTP/gRPC service integration testing
+- portpicker 0.1 for ephemeral port allocation
+- testcontainers-rs 15 considered but deferred (Docker dependency)
 
-**Must have (table stakes):**
-- SQL core: SELECT, WHERE, GROUP BY, ORDER BY, LIMIT, JOIN (broadcast hash), CTEs
-- File formats: Parquet, CSV, JSON over S3/HDFS/local
-- Coordinator-worker distributed execution with Exchange operators
-- Pipeline streaming (Trino-style, not Spark batch)
-- JDBC driver + CLI interface
-- Basic query metrics and EXPLAIN
+**Test Utilities:**
+- tempfile 3 for RAII temporary files (Parquet/CSV operations)
+- assert_cmd 2 + predicates 3 for CLI binary testing
 
-**Should have (competitive):**
-- Window functions (ROW_NUMBER, RANK, LEAD, LAG)
-- Additional connectors (PostgreSQL, MySQL)
-- Predicate/aggregation pushdown for data locality
-- Iceberg connector + time travel
-- Resource groups / query queuing
+**Code Documentation:**
+- rustdoc built into cargo (no additional dependencies)
+- cargo-deadlinks for broken doc link checking
+- cargo-readme for README synchronization
 
-**Defer (v2+):**
-- Cost-based optimizer (CBO) — very high complexity
-- Multi-coordinator HA — high complexity
-- Full fault tolerance with partial results
-- JavaScript/Python UDFs
+**What NOT to Add:** rstest, proptest, fake, criterion, cargo-expand, trybuild (overkill or out-of-scope for v1.2)
 
-### Architecture Approach
+---
 
-Trino-style streaming architecture where data flows through operators without materialization between stages. Exchange operators are the **only points where data crosses worker boundaries** — everywhere else, data stays local and streaming. The coordinator produces a stage DAG (not a linear sequence); each stage is a set of tasks that run in parallel on multiple workers.
+### From FEATURES.md
 
-**Major components:**
-1. **Coordinator** — SQL parsing, logical/physical planning, distributed stage DAG planning, task scheduling, result aggregation, catalog/metadata
-2. **Workers** — Execute assigned tasks in parallel, exchange data via Exchange operators, report completion/failure to coordinator
-3. **Query Planner (Octopus extension)** — Extends DataFusion with partition planning, Exchange insertion, pushdown rules, data locality
-4. **Exchange Operator** — Data movement between pipeline stages; GATHER (final agg), REPARTITION (hash shuffle), REPLICATE (broadcast)
-5. **Scheduler** — Assigns tasks to workers based on data locality and load, handles work stealing
+**Table Stakes (Must Have):**
+- Unit tests in #[cfg(test)] modules co-located with source
+- #[test] and #[tokio::test] attributes
+- Integration tests in tests/ directory
+- #[should_panic] for expected panic verification
+- assert_eq!/assert_ne! with PartialEq + Debug derives
+- #[automock] for trait mocking
+- #[ignore] for slow/flaky tests
 
-### Critical Pitfalls
+**Differentiators (Recommended for v1.3+):**
+- Property-based testing (proptest) for critical algorithms
+- Code coverage tracking (cargo-llvm-cov)
+- Criterion benchmarks for hot paths
+- Doc tests in Rustdoc comments
 
-1. **Pipeline Breaker Ignorance** — Full sort, hash aggregation with many groups, collect-all joins must consume all input before producing output. Breaks streaming semantics. Prevention: Mark `unbounded_output()` correctly, design Exchange to handle backpressure, create pipeline breaker detector rule.
+**Anti-Features (Explicitly NOT Building):**
+- testcontainers (heavy Docker dependency)
+- Golden file tests (fragile, plan text changes with DataFusion versions)
+- Load/stress testing (requires multi-node cluster)
+- Fuzz testing (SQL surface not yet stable)
 
-2. **Tokio Runtime Contention** — S3/HDFS reads block compute threads when CPU and I/O share thread pool. Causes p99 >> p50 latency. Prevention: Separate Tokio runtimes for CPU-bound execution and I/O-bound Flight/object store.
+**Octopus Crate Test Surface:**
+- octopus-common: UDF registry, federated connector traits, error types
+- octopus-coordinator: scheduler, query_service state machine, stage_planner, HTTP handlers
+- octopus-executor: query execution, exchange sender/receiver
+- octopus-worker: task execution, flight server
+- octopus-cli: argument parsing, REPL mode
 
-3. **Arrow Flight Batch Size Mismanagement** — Unbounded batches cause OOM (e.g., 1M rows with large strings = >10GB). Prevention: Set `max_batch_size` (~100K rows), bounded channel receivers on coordinator.
+---
 
-4. **Partition Pruning Ignorance** — Queries scan all partitions even when filters should limit scope. Causes 10-100x excess network traffic. Prevention: Store partition metadata (min/max), implement partition pruning in task scheduling.
+### From ARCHITECTURE.md
 
-5. **Exchange Operator Deadlock** — Cyclic dependencies through Exchange operators cause distributed deadlock. Prevention: DAG validation before execution, non-blocking Exchange with bounded channels, deadlock detection timeout.
+**Integration Points for Tests:**
+1. DataFusion SessionContext (query_service.rs:93-96) - needs test harness with known schemas/UDFs
+2. WorkerRegistry (scheduler.rs:25) - needs controllable mock with static worker list
+3. Tokio async runtime - #[tokio::test] infrastructure already present
+4. Arrow Flight data plane - needs mock endpoints returning predefined data
+5. Federated connectors - needs in-memory fake connectors
+
+**Current State Assessment:**
+- octopus-common: 4 source files, tests exist (udf.rs only)
+- octopus-coordinator: 11 source files, no tests
+- octopus-executor: 8 source files, no tests
+- octopus-worker: 9 source files, no tests
+
+**Test Organization:**
+- Unit tests: #[cfg(test)] modules in source files
+- Integration tests: tests/ directory per crate
+- Priority test utilities: MockWorkerRegistry, TestQueryContext, InMemoryConnectionPool, TestRecordBatchFactory
+
+**Recommended Patterns:**
+1. Trait-based mocking via #[automock]
+2. Constructor injection for test doubles
+3. Async test infrastructure with #[tokio::test]
+4. Channel-based component testing with controlled channels
+
+---
+
+### From PITFALLS.md
+
+**Critical Pitfalls:**
+
+1. **Blocking the Tokio Runtime** - Tests hang indefinitely when using std::thread::sleep, std::fs::read, or blocking mutex locks in async context. Prevention: Use tokio::time::sleep, tokio::fs::read, async-aware synchronization.
+
+2. **Shared Mutable State Across Parallel Tests** - Tests pass individually but fail together when reusing SessionContext or global state. Prevention: Fresh state per test; never share mutable context.
+
+3. **Deadlocks in Multi-Stage Async Test Scenarios** - Tests hang forever due to cyclic dependencies or missing .await. Prevention: Wrap all .await in timeouts; test Exchange operators with explicit timeouts.
+
+4. **Integration Tests Without Proper Resource Cleanup** - Port conflicts, file handle leaks on CI. Prevention: Use tempfile for automatic cleanup, portpicker for unique ports, proper shutdown signals.
+
+5. **Over-Mocking Internal Dependencies** - Tests pass but code integration fails when mock behavior diverges from real implementation. Prevention: Test at highest level possible; use real RecordBatch::try_from_iter; mock only at system boundaries.
+
+**Moderate Pitfalls:**
+
+6. Missing error path coverage - every ? needs corresponding error test
+7. Doc tests that fail after API changes - run cargo test --doc in CI
+8. Slow test suite accumulation - keep unit tests fast, mark slow tests with #[ignore]
+9. Environment-dependent tests - provide defaults that work in CI
+10. Send + Sync trait bounds not verified - add compile-fail tests for thread-safe types
+
+---
 
 ## Implications for Roadmap
 
-Based on research, suggested phase structure aligns with Architecture.md's build order and avoids critical pitfalls at each stage.
+### Recommended Phase Structure
 
-### Phase 1: Single-Node DataFusion Foundation
-**Rationale:** All distributed execution builds on single-node query execution. Must establish correct patterns (streaming operators, runtime separation) before distribution.
-**Delivers:** Local SQL execution against Parquet/CSV files, proper `unbounded_output()` on operators, separate Tokio runtimes for CPU/IO.
-**Addresses:** FEATURES.md — SQL core, basic file formats
-**Avoids:** Pitfall 1 (pipeline breakers), Pitfall 2 (runtime contention)
+**Phase 1: Test Infrastructure Foundations**
+- Rationale: All subsequent testing depends on having mock utilities and test data factories
+- Deliverables:
+  - Add mockall, tempfile, tokio-test to Cargo.toml dev-dependencies
+  - Create MockWorkerRegistry for scheduler tests
+  - Create TestQueryContext with pre-configured SessionContext
+  - Create TestRecordBatchFactory for Arrow test data
+  - Create InMemoryConnectionPool for connector tests
+- Pitfalls to avoid: PITFALL 4 (resource cleanup), PITFALL 5 (over-mocking)
 
-### Phase 2: Coordinator Core
-**Rationale:** Coordinator owns logical-to-distributed planning boundary. Must be built before workers can receive tasks.
-**Delivers:** gRPC control plane service, worker registration, task creation/distribution, stage DAG planning with Exchange insertion.
-**Uses:** Stack — tonic 0.14, prost 0.14, async-trait
-**Implements:** Architecture — Coordinator component, control plane communication
+**Phase 2: Unit Tests for Core Components**
+- Rationale: Critical paths need coverage before integration testing; pure logic tests are fastest to write
+- Deliverables:
+  - octopus-common: UDF registry tests, error type tests
+  - octopus-coordinator: scheduler tests (locality scoring, round-robin fallback), query_service state machine tests
+  - octopus-executor: query execution basics with temp Parquet files
+- Pitfalls to avoid: PITFALL 1 (blocking), PITFALL 2 (shared state), PITFALL 3 (deadlocks)
 
-### Phase 3: Worker Execution + Arrow Flight Data Plane
-**Rationale:** Workers must receive tasks and exchange data. Arrow Flight is the data transfer mechanism for Exchange operators.
-**Delivers:** Worker service, task execution, Flight data plane with batch size limits, simple 2-stage query (Scan → Aggregate with one Exchange).
-**Avoids:** Pitfall 3 (batch size OOM), Pitfall 5 (exchange deadlock via bounded channels)
+**Phase 3: Integration Tests**
+- Rationale: Components must work together before documentation; HTTP API must be stable
+- Deliverables:
+  - HTTP API integration tests for coordinator endpoints (submit, explain, state)
+  - Arrow Flight endpoint tests for executor
+  - Federated connector mock tests with in-memory fake DB
+  - Exchange sender/receiver channel tests
+- Pitfalls to avoid: PITFALL 4 (resource leaks), PITFALL 6 (missing error paths)
 
-### Phase 4: Distributed Optimization
-**Rationale:** Basic execution working — now add intelligence. Partition metadata enables locality-aware scheduling.
-**Delivers:** Partition metadata in catalog, data locality scheduler, predicate pushdown, exchange optimization, partition pruning.
-**Avoids:** Pitfall 4 (partition pruning/locality failures), Pitfall 7 (load imbalance via work stealing)
+**Phase 4: Documentation**
+- Rationale: Final phase; public APIs must be stable before documenting
+- Deliverables:
+  - Rustdoc for all pub struct, pub enum, pub fn in coordinator and executor
+  - Module-level //! docs for each source file
+  - Usage examples in test utilities
+  - Run cargo test --doc validation
+- Pitfalls to avoid: PITFALL 7 (stale doc tests)
 
-### Phase 5: Fault Tolerance & HA
-**Rationale:** Execution foundation solid — now handle failures gracefully.
-**Delivers:** Task retry with fast-fail, heartbeat monitoring, graceful degradation, partial result handling.
-**Avoids:** Pitfall 9 (session state explosion via limits), Pitfall 10 (graceful degradation)
-
-### Phase Ordering Rationale
-
-- **Single-node first**: Distributed adds significant complexity. Establish correct single-node patterns (streaming, runtime separation) before distribution. Architecture.md explicitly lists this as Phase 1.
-- **Coordinator before workers**: Workers are stateless executors — they need something to connect to. gRPC control plane is the communication backbone.
-- **Data plane after task execution**: Arrow Flight is the transport for Exchange operators. Must have tasks producing data before Flight transfer matters.
-- **Optimization after basic execution**: Partition pruning and locality-aware scheduling require working execution to test. Don't optimize what doesn't work yet.
-- **Fault tolerance last**: Requires working system to test failure scenarios.
-
-### Research Flags
-
-Phases likely needing deeper research during planning:
-- **Phase 3 (Arrow Flight data plane):** Complex gRPC stream management, connection pooling, batch sizing — needs API research and spike
-- **Phase 5 (Fault Tolerance):** Multi-coordinator consensus patterns, split-brain prevention — sparse documentation, needs research-phase
-
-Phases with standard patterns (skip research-phase):
-- **Phase 1 (DataFusion foundation):** Well-documented, established patterns from DataFusion examples
-- **Phase 2 (Coordinator):** gRPC service patterns well-established via tonic examples
+---
 
 ## Confidence Assessment
 
 | Area | Confidence | Notes |
 |------|------------|-------|
-| Stack | HIGH | Verified against DataFusion 53 workspace dependencies, Ballista Cargo.toml, Arrow/tonic docs |
-| Features | MEDIUM-HIGH | Based on official docs for Trino/Presto/Drill/Spark; some inference for MVP prioritization |
-| Architecture | HIGH | Based on DataFusion official docs, Trino architecture, SIGMOD 2024 paper, Flink patterns |
-| Pitfalls | MEDIUM-HIGH | Based on DataFusion docs + distributed systems patterns; some inferred prevention strategies |
+| Stack | HIGH | All recommended tools are established Rust ecosystem libraries |
+| Features | MEDIUM-HIGH | Standard Rust patterns well-documented; Octopus modules confirmed via code inspection |
+| Architecture | MEDIUM | Integration points identified via code inspection; specific mocking patterns need spike |
+| Pitfalls | MEDIUM-HIGH | Async testing patterns well-documented; specific Octopus failure modes inferred from architecture |
 
-**Overall confidence:** HIGH
+### Research Gaps to Address During Implementation
 
-### Gaps to Address
+1. **gRPC/Flight service mocking**: Specific patterns for testing tonic services and Arrow Flight servers need spike during Phase 3
+2. **DataFusion test helpers**: How to set up SessionContext for testing without hitting production object stores
+3. **Test HTTP server setup**: axum::test::TestClient vs tower MockSvc vs real server on random port
+4. **Mock coordinator client**: Need #[automock] trait for CoordinatorClient to test worker in isolation
 
-- **Metadata store trait design**: Concrete implementation choice (PostgreSQL vs SQLite vs etcd) not made — defer to implementation phase based on deployment requirements
-- **Coordinator-worker protocol details**: Task serialization format, heartbeat frequency, retry policies — need specification during Phase 2 planning
-- **Batch size tuning**: 100K rows default needs empirical validation — spike during Phase 3
-- **Load balancing algorithm**: Work stealing vs weighted assignment — needs implementation testing
+---
 
 ## Sources
 
-### Primary (HIGH confidence)
-- [DataFusion 53 Cargo.toml](https://raw.githubusercontent.com/apache/datafusion/refs/heads/main/Cargo.toml) — Stack verification
-- [DataFusion Architecture Docs](https://docs.rs/datafusion/latest/datafusion/) — Pipeline breakers, streaming execution
-- [DataFusion SIGMOD 2024 Paper](https://dl.acm.org/doi/10.1145/3626246.3653368) — Architecture decisions
-- [Arrow Flight Protocol](https://github.com/apache/arrow/blob/main/docs/source/format/Flight.md) — Data plane design
-- [Tokio Thread Pool Best Practices](https://tokio.rs/blog/2020-04-preemption) — Runtime isolation
-- [Trino Architecture (Official)](https://trino.io/docs/current/overview/concepts) — Streaming architecture reference
-- [Arrow Flight RPC Guide](https://arrow.apache.org/docs/cpp/flight.html) — Batch sizing, connection management
+### STACK.md Sources
+- tokio test macro - https://docs.rs/tokio/latest/tokio/attr.test.html
+- mockall documentation - https://docs.rs/mockall/latest/mockall/
+- tower-test - https://docs.rs/tower-test/latest/tower_test/
+- tempfile - https://docs.rs/tempfile/latest/tempfile/
+- assert_cmd - https://docs.rs/assert_cmd/latest/assert_cmd/
+- portpicker - https://docs.rs/portpicker/latest/portpicker/
 
-### Secondary (MEDIUM-HIGH confidence)
-- [Ballista Architecture](https://github.com/apache/arrow-datafusion) — Coordinator-worker patterns, known issues
-- [Trino Documentation (Official)](https://trino.io/docs/current/) — Feature expectations
-- [Presto Documentation (Official)](https://prestodb.io/docs/current/) — Feature expectations
+### FEATURES.md Sources
+- The Rust Programming Language - Testing Chapter - HIGH confidence
+- Tokio Testing Documentation - HIGH confidence
+- Mockall Documentation - HIGH confidence
+- tokio-test crate - MEDIUM confidence
+- proptest crate - MEDIUM confidence
+- axum testing guide - MEDIUM confidence
+- DataFusion/Ballista test patterns - LOW confidence (inferential)
 
-### Tertiary (MEDIUM confidence)
-- [Flink Runtime Architecture](https://github.com/apache/flink/blob/master/docs/content/docs/concepts/flink-architecture.md) — Streaming-first MPP patterns
+### ARCHITECTURE.md Sources
+- Tokio testing: tokio-test documentation - HIGH confidence
+- DataFusion testing: Integration with SessionContext - HIGH confidence
+- Rust async testing patterns: Standard practice - HIGH confidence
+
+### PITFALLS.md Sources
+- Tokio: Testing async code - MEDIUM confidence
+- The Rust Programming Language: Testing - HIGH confidence
+- DataFusion testing utilities - MEDIUM confidence
+- tokio::test documentation - HIGH confidence
 
 ---
-*Research completed: 2026-04-22*
-*Ready for roadmap: yes*
+
+## Verification Checklist
+
+- [ ] All async tests use #[tokio::test]
+- [ ] No blocking calls (std::thread, std::fs) in async test context
+- [ ] Each test creates fresh state (no shared SessionContext)
+- [ ] All .await points have timeout protection
+- [ ] Error paths tested for every ? operator
+- [ ] cargo test --doc passes
+- [ ] Integration tests in tests/ directory
+- [ ] Slow tests marked with #[ignore] and documented

@@ -1,215 +1,274 @@
-# Domain Pitfalls: Distributed MPP Query Engine (Octopus)
+# Domain Pitfalls: Testing & Documentation for Rust Projects
 
-**Project:** Octopus — Distributed MPP Query Engine
-**Researched:** 2026-04-22
-**Confidence:** MEDIUM-HIGH (based on DataFusion official docs + distributed systems patterns)
+**Domain:** Adding comprehensive tests and documentation to existing Rust project
+**Context:** Octopus distributed MPP query engine using tokio, DataFusion, Arrow Flight, gRPC
+**Researched:** 2026/05/21
+**Confidence:** MEDIUM (based on Rust async testing patterns; web search unavailable for verification)
 
 ---
 
 ## Critical Pitfalls
 
-Mistakes that cause rewrites, data corruption, or catastrophic performance degradation.
+Mistakes that cause test suite instability, maintenance burden, or false confidence in test coverage.
 
-### Pitfall 1: Pipeline Breaker Ignorance
+### Pitfall 1: Blocking the Tokio Runtime
 
-**What goes wrong:** Queries hang indefinitely or use excessive memory because operators that must materialize all input block the streaming pipeline.
+**What goes wrong:** Tests hang indefinitely, panic with stack overflow, or exhibit intermittent failures that appear random.
 
-**Why it happens:** DataFusion's streaming execution model requires operators to produce output incrementally. Certain operators — full sort, hash aggregation with multiple groups, collect-all joins — are "pipeline breakers" that must consume all input before producing any output. In a Trino-style streaming architecture, these create backpressure that defeats the purpose of pipeline execution.
+**Why it happens:** Tokio uses a work-stealing multi-threaded scheduler. Using blocking I/O (`std::thread::sleep`, `std::fs::read`, blocking mutex locks) inside async contexts exhausts the worker thread pool. In tests, this causes deadlocks because the runtime cannot make progress.
 
 **Consequences:**
-- Queries that should complete in milliseconds consume gigabytes of memory
-- Streaming semantics break — downstream operators sit idle waiting for complete input
-- Latency becomes unpredictable (p99 spikes)
+- Test suite hangs requiring `kill -9`
+- Stack overflow in deeply nested async call chains
+- Flaky tests that pass/fail unpredictably
 
 **Prevention:**
-- Mark all ExecutionPlan operators with `unbounded_output()` returning `true` for streaming operators, `false` for breakers
-- Design Exchange operators to handle backpressure from pipeline breakers
-- Create a "pipeline breaker detector" query planning rule that warns when a plan has chained breakers
-- Consider partial aggregation (streaming) vs. full hash aggregation as separate physical operators
+```rust
+// WRONG — blocks the runtime thread
+#[tokio::test]
+async fn test_bad() {
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    let data = std::fs::read("file.txt").unwrap();
+}
 
-**Detection:**
-```
-# Warning sign in query plans
-explain(analyze) show operators with "N/A" for output rows until input complete
-Memory metrics spike when pipeline breaker executes
+// CORRECT — yields to runtime
+#[tokio::test]
+async fn test_good() {
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let data = tokio::fs::read("file.txt").await.unwrap();
+}
 ```
 
-**Phase mapping:** Physical planning phase — must address when implementing Exchange operators and custom physical operators.
+**For Octopus specifically:** When testing query execution, ensure any filesystem operations (reading Parquet/CSV test fixtures) use `tokio::fs` not `std::fs`.
+
+**Detection:** Tests hang; `RUST_BACKTRACE=1` shows `tokio::runtime` in stack traces.
 
 ---
 
-### Pitfall 2: Tokio Runtime Contention (CPU + IO on Same Thread Pool)
+### Pitfall 2: Shared Mutable State Across Parallel Tests
 
-**What goes wrong:** Query latency spikes unpredictably; S3/HDFS reads block compute threads; p99 latency 10x higher than p50.
+**What goes wrong:** Tests pass individually but fail together. Test A pollutes Test B's state (flaky tests).
 
-**Why it happens:** DataFusion uses Tokio as its thread pool for both CPU-intensive compute AND network I/O (Arrow Flight, object store reads). When a long S3 read blocks a tokio thread, all other tasks on that thread — including other query operators — are stalled. This is especially damaging under concurrent query load.
+**Why it happens:** Rust's `cargo test` runs tests in parallel by default. Static variables, global state, `lazy_static` singletons, or `Rc<RefCell<>>` shared between tests cause data races and state corruption. With DataFusion's `SessionContext`, reusing a single context across tests creates table registration conflicts.
 
 **Consequences:**
-- Long tail latencies (p99 >> p50) for queries reading from remote storage
-- Network flow control throttling from blocked Flight connections
-- Poor utilization of CPU during I/O wait
+- "poisoned" mutex errors
+- Data races (undefined behavior in release mode)
+- Tests that fail only on CI (more parallelism) but pass locally
 
 **Prevention:**
-- Use separate Tokio runtimes: one for CPU-bound execution, one for I/O (Flight, object store)
-- Configure I/O runtime with more threads than CPU runtime
-- Use `datafusion-examples/query_planning/thread_pools.rs` as reference implementation
-- For object store reads, use async streaming with bounded channels to decouple I/O from compute
-
-**Detection:**
-```
-# Warning signs
-- p99 latency >> p50 latency under load
-- Thread pool utilization metrics show some threads 100% busy, others idle
-- Flight connection timeout errors during concurrent queries
+```rust
+// CORRECT — fresh state per test
+#[tokio::test]
+async fn test_query_planning() {
+    let ctx = SessionContext::new();
+    ctx.register_csv("test_data", "test.csv", CsvReadOptions::new()).await.unwrap();
+    let df = ctx.sql("SELECT * FROM test_data").await.unwrap();
+    // SessionContext dropped at end of test
+}
 ```
 
-**Phase mapping:** Execution engine phase — when integrating DataFusion execution with Arrow Flight data plane.
+- Use `#[serial]` attribute from `serial_test` crate only when serialization is truly required
+- Avoid global mutable state in test modules
+- Create unique identifiers for test resources (tables, channels, workers)
 
 ---
 
-### Pitfall 3: Arrow Flight Batch Size Mismanagement
+### Pitfall 3: Deadlocks in Multi-Stage Async Test Scenarios
 
-**What goes wrong:** Out-of-memory errors on workers when transferring large batches; memory pressure on coordinator during result aggregation.
+**What goes wrong:** Test hangs forever because it awaits a message that never arrives due to cyclic dependencies or missing task spawning.
 
-**Why it happens:** Arrow Flight transfers `RecordBatch` data directly over gRPC streams. Without proper batch size limits, a single batch can exceed memory limits (e.g., 1M rows with large string columns = >10GB). Additionally, the coordinator may receive many concurrent Flight streams that accumulate in memory before being consumed.
+**Why it happens:** In async Rust, forgetting to `.await` a `send()` on a channel, or creating a cyclic wait between tasks (Task A waits for Task B, Task B waits for Task A), causes indefinite hangs. The test runtime has no timeout by default.
 
 **Consequences:**
-- OOM kills on worker nodes during data transfer
-- Coordinator memory exhaustion with many concurrent queries
-- Network connection drops due to memory pressure
+- Test suite hangs, blocking CI
+- No error message — test appears to be "running"
 
 **Prevention:**
-- Set `max_batch_size` in Flight DoGet/DoPut requests (e.g., 100K rows default)
-- Implement bounded channel receivers on coordinator — do not accumulate Flight data faster than it can be processed
-- Use `FlightData::data_body` size limits and reject batches exceeding threshold
-- Monitor Arrow batch memory allocation: `arrow::util::pretty::pretty_format_batches` for debugging
+```rust
+#[tokio::test]
+async fn test_with_timeout() {
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        async_operation_that_may_deadlock()
+    ).await;
 
-**Detection:**
-```
-# Warning signs
-- Worker OOM logs coincide with Flight transfer completion
-- Coordinator RSS grows monotonically during result aggregation
-- gRPC stream window exhaustion messages
+    assert!(result.is_ok(), "operation timed out - possible deadlock or hang");
+}
 ```
 
-**Phase mapping:** Data plane implementation phase — when implementing Arrow Flight servers and clients.
+**For Octopus specifically:** When testing Exchange operator communication between stages, always wrap in timeouts since multi-stage pipelines are prone to deadlock if stage dependencies are misconfigured.
 
 ---
 
-### Pitfall 4: Partition Pruning Ignorance (Data Locality Failures)
+### Pitfall 4: Integration Tests Without Proper Resource Cleanup
 
-**What goes wrong:** Queries scan all partitions even when filter predicates should limit to specific partitions; network traffic 100x expected.
+**What goes wrong:** Tests pass in isolation but fail on CI due to port conflicts, file handle leaks, or memory exhaustion.
 
-**Why it happens:** Without partition pruning rules, workers request data from partitions that could have been excluded by filter predicates. In a distributed setting, this means unnecessary network transfer between storage and compute. DataFusion supports partition pushdown for `ListingTable`, but distributed scheduling must propagate filter information to task assignment.
-
-**Consequences:**
-- 10-100x more data transferred over network than necessary
-- Query latency dominated by network I/O, not compute
-- Workers waste CPU scanning irrelevant partitions
+**Why it happens:** Integration tests spawn actual servers, bind ports, create temp files. Without explicit cleanup, these accumulate during test runs. CI runs more tests concurrently than local development, amplifying resource exhaustion.
 
 **Prevention:**
-- Ensure partition metadata (min/max values per partition) is available to coordinator
-- Implement partition pruning in task scheduling: skip partitions where `predicate_col NOT BETWEEN partition_min AND partition_max`
-- Use DataFusion's `PruningPredicate` for bloom filter pruning on Parquet
-- Test with `EXPLAIN VERBOSE` to verify partition pruning is applied
+```rust
+use tempfile::TempDir;
 
-**Detection:**
-```
-# Warning signs
-- Query execution time scales with total data size, not filtered data size
-- Network bytes transferred >> result data size
-- EXPLAIN shows Scan with all partitions, not filtered subset
+#[tokio::test]
+async fn test_with_temp_dir() {
+    let temp_dir = TempDir::new().unwrap();
+    // temp_dir automatically deleted when dropped, even on panic
+    let path = temp_dir.path().to_str().unwrap();
+    // use path for test data
+}
 ```
 
-**Phase mapping:** Distributed scheduling phase — when implementing partition-aware task distribution.
+- Use `portpicker` crate for unique port allocation per test
+- Use `tempfile` crate for automatic temp file/directory cleanup
+- Spawn servers in spawned tasks with proper shutdown signals
 
 ---
 
-### Pitfall 5: Exchange Operator Deadlock
+### Pitfall 5: Over-Mocking Internal Dependencies
 
-**What goes wrong:** Distributed query hangs with all workers idle; no progress, no error messages.
+**What goes wrong:** Tests pass but code integration fails because mock behavior diverges from real implementation.
 
-**Why it happens:** In a streaming pipeline with multiple Exchange operators (e.g., for repartitioning mid-query), each Exchange waits for the other to complete. Classic distributed deadlock: Stage 1 waits for Stage 2 to send data, Stage 2 waits for Stage 1's input. This happens when:
-- Two stages have a cyclic dependency through Exchange operators
-- Backpressure creates circular wait condition
-- Task scheduler assigns tasks in a way that creates dependency cycles
+**Why it happens:** Excessive mocking of DataFusion internal types (RecordBatch builders, Schema objects, execution plan nodes) creates test doubles that don't reflect real validation logic. Tests become white-box tests of implementation details rather than black-box tests of behavior.
 
 **Consequences:**
-- Query hangs indefinitely (requires coordinator restart)
-- No error output because the query is "running" (just deadlocked)
-- All associated workers appear idle but allocated
+- Tests pass but actual query execution fails
+- Tests break whenever implementation details change (even when behavior is correct)
+- Maintenance burden: every internal refactor requires updating dozens of mocks
 
 **Prevention:**
-- Implement DAG validation in query planning: detect cycles before execution
-- Use non-blocking Exchange with bounded channels — allow senders to fail fast if receiver is blocked
-- Set `exchange_concurrency_limit` to prevent too many in-flight batches between stages
-- Add deadlock detection timeout: if no progress for X seconds, abort and retry
+- Test at the highest level possible: integration tests with real DataFusion execution
+- Mock only at system boundaries (network, filesystem, external services)
+- For DataFusion specifically: use `RecordBatch::try_from_iter` to create real batches, not hand-crafted mocks
 
-**Detection:**
-```
-# Warning signs
-- Query stuck at "EXCHANGE" stage in EXPLAIN ANALYZE
-- All worker CPU utilization drops to 0% simultaneously
-- Query age exceeds expected duration by 10x
-```
+```rust
+// PREFER: real RecordBatch
+let batch = RecordBatch::try_from_iter(vec![
+    ("id", Arc::new(Int64Array::from_vec(vec![1, 2, 3])) as ArrayRef),
+    ("value", Arc::new(Float64Array::from_vec(vec![1.0, 2.0, 3.0])) as ArrayRef),
+]).unwrap();
 
-**Phase mapping:** Query planning and execution phases — when implementing multi-stage pipeline execution with Exchange operators.
+// AVOID: mocking internals unless absolutely necessary
+```
 
 ---
 
 ## Moderate Pitfalls
 
-Design issues that cause significant performance problems or complexity but can be addressed mid-project.
+Design issues that degrade test maintainability over time.
 
-### Pitfall 6: Coercion/Type Mismatch Silent Failures
+### Pitfall 6: Missing Error Path Coverage
 
-**What goes wrong:** Queries return wrong results (no error) because of silent type coercion in distributed execution.
+**What goes wrong:** Happy path works in production, but error cases cause unexpected panics or incorrect error messages.
 
-**Why it happens:** When distributing query fragments across workers, each worker may resolve types independently. If the coordinator uses a different type coercion rule than workers (e.g., due to different DataFusion versions or configuration), the same expression may evaluate differently. This is especially dangerous with decimal precision, timestamps across timezones, and string/numeric comparisons.
-
-**Prevention:**
-- Lock DataFusion version across coordinator and workers
-- Centralize all type resolution in coordinator; workers receive fully-typed physical plans
-- Add validation stage: execute a "type check query" that verifies result types before returning to client
-- Use explicit CAST expressions rather than implicit coercion
-
-**Phase mapping:** Coordinator-worker communication phase — when establishing protocol for plan distribution.
-
-### Pitfall 7: Task Scheduler Load Imbalance
-
-**What goes wrong:** 90% of query work executes on 10% of workers; some nodes idle while others are overloaded.
-
-**Why it happens:** Default round-robin or simple hash-based task distribution doesn't account for:
-- Variable data sizes per partition
-- Different query complexity (some tasks are CPU-intensive, others are I/O-bound)
-- Worker resource heterogeneity (different CPU counts, memory)
-
-**Consequences:**
-- Overall query latency determined by slowest worker (straggler problem)
-- Poor cluster utilization despite high load on some nodes
-- p99 latency >> average latency
+**Why it happens:** Writing tests for success is easier; error paths (`Err` variants, `panic!`, `unwrap()`) are often untested. This is especially dangerous in distributed systems where network failures, timeouts, and malformed data are common.
 
 **Prevention:**
-- Implement work stealing: idle workers steal tasks from busy workers
-- Estimate task cost based on data size and operator type
-- Track worker load in coordinator and weight task assignment accordingly
-- Consider adaptive partitioning: split large partitions into smaller units
+```rust
+#[tokio::test]
+async fn test_error_case() {
+    let result = parse_invalid_sql("SELECT * FROM nonexistent").await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(matches!(err, QueryError::TableNotFound(_)));
+}
+```
 
-**Phase mapping:** Distributed scheduling phase — when implementing task assignment logic.
+- Every `?` operator in code should have a corresponding error test
+- Use `matches!` macro to verify error variant and message content
+- Test both the error type and the error message string
 
-### Pitfall 8: gRPC Connection Pool Exhaustion
+---
 
-**What goes wrong:** New queries fail with "connection refused" or timeouts even when cluster is healthy; existing queries continue normally.
+### Pitfall 7: Doc Tests That Fail After API Changes
 
-**Why it happens:** Arrow Flight over gRPC creates long-lived bidirectional streams. Without connection pooling and limits, each query may open multiple Flight connections per worker. Under concurrent query load, gRPC connection limits are hit (default max channels per server: 100, max per client: 10).
+**What goes wrong:** `cargo test --doc` fails because doc examples are outdated after refactoring.
+
+**Why it happens:** Doc tests embedded in `///` comments run as part of the test suite. When APIs change, these examples become stale but are easily forgotten since they're not in the `tests/` directory.
 
 **Prevention:**
-- Implement Flight connection pooling: reuse connections across queries
-- Set `grpc.max concurrent streams` appropriately for expected concurrency
-- Monitor connection count and scale coordinators or use connection pooling sidecar
-- Use multiplexing (single Flight connection for multiple streams) where possible
+```rust
+/// Brief description of function.
+///
+/// # Example
+///
+/// ```
+/// # use octopus_common::query::QueryPlanner;
+/// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+/// let planner = QueryPlanner::new();
+/// // ... complex setup that would make example unreadable ...
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Note: For complex examples, prefer `ignore` or separate test files.
+fn complex_function() {}
+```
 
-**Phase mapping:** Control plane implementation phase — when building gRPC services for coordination.
+- Use `ignore` for examples that require complex setup
+- Use `compile_fail` for examples showing incorrect usage
+- Run `cargo test --doc` in CI to catch doc test failures
+
+---
+
+### Pitfall 8: Slow Test Suite Accumulation
+
+**What goes wrong:** Developers stop running tests locally; CI takes >15 minutes; test suite is ignored.
+
+**Why it happens:** As more tests are added without discipline, integration tests that spawn processes, hit real networks, or process large datasets accumulate. `#[ignore]` attributes pile up for "temporary" slow tests.
+
+**Prevention:**
+```rust
+// Mark slow tests explicitly
+#[tokio::test]
+#[ignore = "slow integration test - run with cargo test --ignored"]
+async fn test_full_distributed_query_pipeline() {
+    // ...
+}
+
+// Keep unit tests fast (<100ms each)
+// Keep integration tests separate: tests/integration_*.rs
+```
+
+- Set CI timeouts and fail builds that exceed them
+- Target: unit tests complete in <5 minutes total
+- Integration tests run in separate CI job, triggered on PR approval
+
+---
+
+### Pitfall 9: Tests That Require Specific Environment
+
+**What goes wrong:** Tests pass locally but fail on CI because they depend on environment variables, specific ports, or external services not available in CI.
+
+**Why it happens:** Tests written for developer convenience (hardcoded paths, env vars in `.env` file, local service instances) break in CI where these are not configured.
+
+**Prevention:**
+- Use `#[cfg(test)]` module attributes to isolate environment-dependent tests
+- Provide defaults that work in CI; require explicit env vars for local override
+- Document required environment setup in test module documentation
+- Use Docker Compose for integration tests that require services (Postgres, etc.)
+
+---
+
+### Pitfall 10: `Send + Sync` Trait Bounds Not Verified
+
+**What goes wrong:** Code compiles, tests pass, but code fails in multi-threaded production context due to missing `Send` or `Sync` trait bounds.
+
+**Why it happens:** Rust auto-derives `Send` and `Sync`. Some types (like `Rc<T>`, `RefCell<T>`) are not `Send`. In single-threaded test context, these compile fine, but fail when used across thread boundaries in production.
+
+**Prevention:**
+```rust
+#[test]
+fn test_send_sync_bounds() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    // This will fail to compile if MyType is not Send + Sync
+    assert_send_sync::<MyType>();
+}
+```
+
+- Add compile-fail tests for types used across thread boundaries
+- Especially important for Exchange operator types, worker message types
 
 ---
 
@@ -217,61 +276,109 @@ Design issues that cause significant performance problems or complexity but can 
 
 Implementation issues with localized impact.
 
-### Pitfall 9: Session State Explosion
+### Pitfall 11: Inconsistent Test Naming Conventions
 
-**What goes wrong:** Coordinator memory grows unbounded over time; queries gradually slow down; eventually coordinator OOMs.
+**What goes wrong:** Cannot determine what a test covers from its name; hard to find related tests; IDE search is ineffective.
 
-**Why it happens:** DataFusion's `SessionContext` caches metadata (table schemas, statistics, UDFs). In a long-running coordinator, these caches grow without bounds, especially with many unique SQL queries that create unique expression objects. The `SessionConfig` defaults may allow unbounded cache growth.
-
-**Prevention:**
-- Set `session_config` limits: max_cached_tables, expression array limits
-- Implement cache eviction policies with TTL
-- Monitor `SessionContext` memory via metrics
-- Periodically restart coordinator to clear accumulated state (for v1)
-
-### Pitfall 10: Missing Graceful Degradation on Worker Failure
-
-**What goes wrong:** Single worker crash kills the entire query; no partial results returned; clients receive cryptic gRPC error.
-
-**Why it happens:** Without task-level retry and partial result handling, a failure in any worker task fails the entire query. For analytical workloads where approximate answers may be acceptable, this is especially problematic.
-
-**Prevention:**
-- Implement fast-fail: when a task fails, cancel sibling tasks immediately
-- For fault-tolerant queries: track which partitions were completed; allow retry of failed partitions
-- Return partial results with error metadata to client (not just "query failed")
-- Use timeout per task, not per query
+**Prevention:** Use consistent naming:
+- Unit tests: `test_unit_<module>_<behavior>`
+- Integration tests: `test_integration_<system>_<scenario>`
+- Doc tests: `doctest_<module>_<function>_example`
 
 ---
 
-## Phase-Specific Warnings
+### Pitfall 12: Asserting Floating Point Values with `==`
+
+**What goes wrong:** Floating point comparison tests fail intermittently due to precision differences across platforms.
+
+**Prevention:**
+```rust
+// WRONG
+assert_eq!(result, 0.1 + 0.2);
+
+// CORRECT
+assert!((result - 0.3).abs() < f64::EPSILON);
+// or use approx crate
+assert!(approx::assert_approx_eq!(result, 0.3));
+```
+
+---
+
+### Pitfall 13: Not Testing `Clone` / `Debug` / `Default` Derives
+
+**What goes wrong:** Derives work at compile time but produce unexpected results at runtime.
+
+**Prevention:** Add basic derives tests for data structures:
+```rust
+#[test]
+fn test_query_result_clone() {
+    let result1 = QueryResult::new();
+    let result2 = result1.clone();
+    assert_eq!(result1.id, result2.id);
+}
+```
+
+---
+
+## Phase-Specific Warnings for v1.2
 
 | Phase Topic | Likely Pitfall | Mitigation |
 |-------------|---------------|------------|
-| DataFusion Integration | Thread contention (Pitfall 2) | Separate IO and CPU runtimes from day 1 |
-| Exchange Operators | Deadlock (Pitfall 5) | Design DAG validation early |
-| Arrow Flight Data Plane | Batch size OOM (Pitfall 3) | Implement bounded channels and batch limits |
-| Task Scheduling | Load imbalance (Pitfall 7) | Plan for work stealing, not just assignment |
-| Partition Pruning | Locality failures (Pitfall 4) | Build partition metadata into metadata store |
-| Multi-Coordinator | Split-brain on consensus | Define single writer for metadata; read can be HA |
+| Unit tests for coordinator scheduling | Blocking in async context | Use `#[tokio::test]`, `tokio::time::sleep` |
+| Integration tests for distributed query | Shared SessionContext state | Fresh context per test |
+| Testing Exchange operators | Deadlock in multi-stage pipeline | Wrap all `.await` in timeouts |
+| Mocking DataFusion RecordBatch | Mock diverges from real behavior | Use `RecordBatch::try_from_iter` |
+| Testing error paths | Errors untested | Every `?` needs corresponding error test |
+| Doc comments | Examples stale after refactoring | Run `cargo test --doc` in CI |
 
 ---
 
-## Key Reference Sources
+## Warning Signs for Test Maintainability
 
-| Source | Relevance | Confidence |
-|--------|-----------|------------|
-| [DataFusion Architecture Docs](https://docs.rs/datafusion/latest/datafusion/) | Pipeline breakers, streaming execution, thread scheduling | HIGH — Official docs |
-| [DataFusion SIGMOD 2024 Paper](https://dl.acm.org/doi/10.1145/3626246.3653368) | Architecture decisions, extension points | HIGH — Peer-reviewed |
-| [Arrow Flight RPC Guide](https://arrow.apache.org/docs/cpp/flight.html) | Batch sizing, connection management | HIGH — Official docs |
-| [DataFusion Ballista Architecture](https://github.com/apache/arrow-datafusion) | Coordinator-worker patterns, known issues | MEDIUM — Community implementation |
-| [Tokio Thread Pool Best Practices](https://tokio.rs/blog/2020-04-preemption) | Runtime isolation, cooperative scheduling | HIGH — Official |
+**Red flags (address immediately):**
+- Test suite takes >10 minutes to run locally
+- Tests pass locally but fail on CI (environment differences)
+- `#[ignore]` attributes accumulating without resolution
+- Flaky tests that pass/fail without code changes
+- Code coverage <70% (significant untested branches)
+
+**Yellow flags (address soon):**
+- Test names don't describe what they verify
+- No error path tests (only happy path)
+- Integration tests mix with unit tests (should be separate files)
+- Mock objects >100 lines (likely testing the mock, not the code)
+
+---
+
+## Prevention Strategy for v1.2
+
+1. **Async test discipline**: Use `#[tokio::test]`, never `#[test]` for async
+2. **Fresh state per test**: No shared `SessionContext`, no globals
+3. **Bound all waits**: Every `.await` should have a timeout
+4. **Test error paths**: Every `?` needs an error variant test
+5. **Integration tests separate**: `tests/` directory for integration, `#[cfg(test)]` in `src/` for unit
+6. **CI gate**: Block merges on test failures; run `cargo test --doc` in CI
+7. **Documentation**: Comment complex async control flow, not just public APIs
+
+---
+
+## Sources
+
+- [Tokio: Testing async code](https://tokio.rs/tokio/testing) — Official docs, MEDIUM confidence
+- [The Rust Programming Language: Testing](https://doc.rust-lang.org/book/ch11-00-testing.html) — Official book, HIGH confidence
+- [DataFusion testing utilities](https://github.com/apache/arrow-datafusion) — Repository, MEDIUM confidence
+- [tokio::test documentation](https://docs.rs/tokio/latest/tokio/attr.test.html) — Official docs, HIGH confidence
 
 ---
 
 ## Verification Checklist
 
-- [ ] Each pitfall has warning signs (detection method)
-- [ ] Each pitfall has prevention strategy (actionable)
-- [ ] Each pitfall maps to at least one phase
-- [ ] Pitfalls are specific to distributed MPP query engine domain (not generic Rust or async advice)
-- [ ] No pitfall contradicts DataFusion's documented behavior
+- [ ] All async test functions use `#[tokio::test]`
+- [ ] No blocking calls (`std::thread`, `std::fs`) in async test context
+- [ ] Each test creates fresh state (no shared SessionContext)
+- [ ] All `.await` points have timeout protection
+- [ ] Error paths are tested for every `?` operator
+- [ ] `cargo test --doc` passes
+- [ ] `cargo clippy` passes with no warnings in test code
+- [ ] Integration tests are in `tests/` directory, not `src/`
+- [ ] Slow tests marked with `#[ignore]` and documented
