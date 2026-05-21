@@ -44,3 +44,8 @@ arrow-flight = "53"
 arrow-ipc = "53"
 futures = "0.3"
 async-stream = "0.3"
+
+mockall = "0.13"
+tempfile = "3"
+portpicker = "0.1"
+tower-test = "0.4"
