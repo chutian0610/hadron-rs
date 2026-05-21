@@ -70,6 +70,16 @@ Users can run fast interactive SQL queries on large distributed datasets with Ru
 | Fast-fail + task retry | Balance between simplicity and reliability | — Pending |
 | Apache 2.0 | Open source, commercial-friendly | — Pending |
 
+## Current Milestone: v1.1 去除 JDBC 实现
+
+**Goal:** 移除 octopus-jdbc 模块和 CLI batch 模式，Octopus 仅通过 HTTP API 交互式提交查询
+
+**Target features:**
+- 删除 `octopus-jdbc` crate
+- 删除 `octopus-cli` 的 batch 模式和 local 模式，仅保留 interactive/repl 模式
+- 更新 `Cargo.toml` workspace members 移除 jdbc
+- 更新文档和 wiki 中关于 JDBC 和 batch 模式的描述
+
 ---
 
 *Last updated: 2026-04-22 after initialization*

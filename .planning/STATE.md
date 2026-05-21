@@ -1,17 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: milestone
-status: Awaiting next milestone
-stopped_at: context exhaustion at 76% (2026-05-13)
-last_updated: "2026-05-13T07:51:06.291Z"
-last_activity: 2026-05-13 — Milestone v1.0 completed and archived
+milestone: v1.1
+milestone_name: 去除 JDBC 实现
+status: Defining requirements
+last_updated: "2026-05-21"
+last_activity: 2026-05-21 — Milestone v1.1 started
 progress:
-  total_phases: 5
-  completed_phases: 5
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -25,10 +24,10 @@ See: .planning/PROJECT.md (updated 2026-04-22)
 
 ## Current Position
 
-Phase: Milestone v1.0 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-05-13 — Milestone v1.0 completed and archived
+Status: Defining requirements
+Last activity: 2026-05-21 — Milestone v1.1 started
 
 ## Performance Metrics
 
