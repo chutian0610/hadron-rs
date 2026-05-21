@@ -1,5 +1,5 @@
 [workspace]
-members = ["octopus-common", "octopus-executor", "octopus-cli", "octopus-worker", "octopus-coordinator", "octopus-jdbc"]
+members = ["octopus-common", "octopus-executor", "octopus-cli", "octopus-worker", "octopus-coordinator"]
 resolver = "2"
 
 [workspace.package]

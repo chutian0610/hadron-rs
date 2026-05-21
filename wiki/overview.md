@@ -45,8 +45,7 @@ The coordinator acts as the central brain, handling SQL parsing, distributed pla
 octopus-coordinator/  - Central brain: SQL parsing, distributed planning, HTTP API
 octopus-executor/      - Local query execution using DataFusion SessionContext
 octopus-worker/        - Task execution + Arrow Flight server
-octopus-cli/           - Client CLI with local/interactive/batch modes
-octopus-jdbc/          - JDBC Type 4 driver (pure Java via JNI)
+octopus-cli/           - Client CLI (interactive/repl mode)
 octopus-common/        - Shared utilities, error types, UDF registry traits
 proto/                 - gRPC protocol definitions
 ```

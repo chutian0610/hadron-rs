@@ -1,12 +1,6 @@
 use clap::Parser;
 use std::io::Read;
 use std::sync::Arc;
-use octopus_executor::{
-    ExecutorSession,
-    QueryExecutor,
-    DataSourceRegistrar,
-    logging::{self, LogFormat, QueryTrace},
-};
 use tokio::runtime::Runtime;
 
 #[derive(Parser, Debug)]
@@ -19,28 +13,12 @@ struct Cli {
     #[arg(long, default_value = "pretty")]
     log_format: String,
 
-    #[arg(long)]
-    parquet: Vec<String>,
-
-    #[arg(long)]
-    csv: Vec<String>,
-
-    #[arg(long)]
-    json: Vec<String>,
-
     #[arg(short, long, default_value_t = false)]
     verbose: bool,
 
-    #[arg(long, default_value = "local")]
-    mode: String,
-
-    /// Coordinator address for distributed mode (REPL/batch)
+    /// Coordinator address for distributed mode
     #[arg(long, default_value = "http://localhost:50051")]
     coordinator: String,
-
-    /// SQL file for batch mode (reads from stdin if not specified)
-    #[arg(long)]
-    file: Option<String>,
 }
 
 /// HTTP-based coordinator client for distributed query execution
@@ -126,86 +104,7 @@ impl CoordinatorClient {
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
-
-    match cli.mode.as_str() {
-        "local" => run_local(cli)?,
-        "interactive" => run_repl(cli)?,
-        "batch" => run_batch(cli)?,
-        _ => run_local(cli)?,
-    }
-
-    Ok(())
-}
-
-fn run_local(cli: Cli) -> anyhow::Result<()> {
-    let format = match cli.log_format.as_str() {
-        "structured" | "json" => LogFormat::Structured,
-        _ => LogFormat::Pretty,
-    };
-    logging::init_tracing(format);
-
-    let session = ExecutorSession::new()
-        .map_err(|e| anyhow::anyhow!("Failed to create session: {}", e))?;
-
-    let ctx = session.context().clone();
-    let registrar = DataSourceRegistrar::new(ctx.clone());
-    let executor = QueryExecutor::new(Arc::new(session));
-
-    let rt = tokio::runtime::Runtime::new()?;
-
-    for path in &cli.parquet {
-        let name = std::path::Path::new(path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("parquet_table");
-
-        rt.block_on(registrar.register_parquet(name, path))
-            .map_err(|e| anyhow::anyhow!("Failed to register Parquet {}: {}", path, e))?;
-    }
-
-    for path in &cli.csv {
-        let name = std::path::Path::new(path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("csv_table");
-
-        rt.block_on(registrar.register_csv(name, path, true))
-            .map_err(|e| anyhow::anyhow!("Failed to register CSV {}: {}", path, e))?;
-    }
-
-    for path in &cli.json {
-        let name = std::path::Path::new(path)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("json_table");
-
-        rt.block_on(registrar.register_json(name, path))
-            .map_err(|e| anyhow::anyhow!("Failed to register JSON {}: {}", path, e))?;
-    }
-
-    if let Some(sql) = cli.sql {
-        let trace = QueryTrace::new(&sql);
-        trace.log_start();
-
-        match rt.block_on(executor.execute_sql_json(&sql)) {
-            Ok(result) => {
-                let row_count = result.matches('\n').count();
-                trace.log_complete(row_count);
-                println!("{}", result);
-            },
-            Err(e) => {
-                trace.log_error(&e.to_string());
-                eprintln!("Query error: {}", e);
-                std::process::exit(1);
-            }
-        }
-    } else {
-        println!("Octopus CLI (local mode)");
-        println!("Use --sql to execute a query");
-        println!("Use --mode interactive for REPL mode");
-    }
-
-    Ok(())
+    run_repl(cli)
 }
 
 fn run_repl(cli: Cli) -> anyhow::Result<()> {
@@ -273,61 +172,5 @@ fn run_repl(cli: Cli) -> anyhow::Result<()> {
     }
 
     println!("Goodbye!");
-    Ok(())
-}
-
-fn run_batch(cli: Cli) -> anyhow::Result<()> {
-    let client = CoordinatorClient::new(&cli.coordinator)?;
-
-    // Read SQL from file or stdin
-    let sql_content = if let Some(file_path) = &cli.file {
-        std::fs::read_to_string(file_path)
-            .map_err(|e| anyhow::anyhow!("Failed to read file {}: {}", file_path, e))?
-    } else {
-        // Read from stdin
-        let mut content = String::new();
-        std::io::stdin().read_to_string(&mut content)?;
-        content
-    };
-
-    // Parse and execute statements (separated by semicolons)
-    let mut current_stmt = String::new();
-    for line in sql_content.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with("--") {
-            continue; // Skip empty lines and comments
-        }
-
-        current_stmt.push_str(line);
-        current_stmt.push(' ');
-
-        if trimmed.ends_with(';') {
-            let stmt = current_stmt.trim_end_matches(';').trim();
-            if !stmt.is_empty() {
-                if stmt.to_lowercase().starts_with("explain ") {
-                    let sql = &stmt[8..].trim();
-                    match client.explain_query(sql) {
-                        Ok(plan) => println!("{}", plan),
-                        Err(e) => eprintln!("EXPLAIN error: {}", e),
-                    }
-                } else {
-                    match client.submit_query(stmt) {
-                        Ok(query_id) => {
-                            println!("Query {}: {}", query_id, stmt);
-                            match client.poll_for_completion(&query_id, 100) {
-                                Ok(state) => println!("  -> {}", state),
-                                Err(e) => eprintln!("  -> Poll error: {}", e),
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Query error: {}", e);
-                        }
-                    }
-                }
-            }
-            current_stmt.clear();
-        }
-    }
-
     Ok(())
 }

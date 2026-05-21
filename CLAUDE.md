@@ -29,7 +29,7 @@ Client → Coordinator → Workers → Arrow Flight (data plane)
 - `octopus-coordinator` — Central brain: SQL parsing, distributed planning, task scheduling, HTTP API
 - `octopus-executor` — Local query execution using DataFusion SessionContext
 - `octopus-worker` — Task execution + Arrow Flight server (Phase 3)
-- `octopus-cli` — Client CLI with local/interactive/batch modes
+- `octopus-cli` — Client CLI (interactive/repl mode)
 - `octopus-common` — Shared utilities
 
 ### Data Flow
