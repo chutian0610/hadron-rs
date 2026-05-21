@@ -1,127 +1,37 @@
-# Requirements: Octopus
+# Requirements: Octopus v1.1
 
-**Defined:** 2026-04-22
+**Defined:** 2026-05-21
+**Milestone:** 去除 JDBC 实现
 **Core Value:** Users can run fast interactive SQL queries on large distributed datasets with Rust-level performance and memory safety.
 
-## v1 Requirements
+## Cleanup Requirements
 
-### SQL Core
+### JDBC and CLI Cleanup
 
-- [ ] **SQL-01**: User can execute SELECT with projection, filtering (WHERE), GROUP BY, ORDER BY, LIMIT/OFFSET
-- [ ] **SQL-02**: User can use aggregation functions (COUNT, SUM, AVG, MIN, MAX) with GROUP BY and HAVING
-- [ ] **SQL-03**: User can perform JOIN operations (INNER, LEFT, RIGHT, FULL) with broadcast hash join for small tables
-- [ ] **SQL-04**: User can use set operations (UNION, INTERSECT, EXCEPT) and subqueries (scalar, table, correlated)
-- [ ] **SQL-05**: User can use CTE (WITH clause) for query organization
-
-### Distributed Execution
-
-- [ ] **DIST-01**: Coordinator can parse SQL and create distributed query plan
-- [ ] **DIST-02**: Coordinator can assign tasks to workers based on data locality
-- [ ] **DIST-03**: Workers can execute tasks in parallel and exchange data via Arrow Flight
-- [ ] **DIST-04**: Exchange operators can pipeline data without stage materialization
-- [ ] **DIST-05**: System supports task-level retry on failure (configurable)
-
-### Data Sources
-
-- [ ] **DATA-01**: User can query Parquet files on S3/HDFS/local filesystem
-- [ ] **DATA-02**: User can query CSV/TSV files on S3/HDFS/local filesystem
-- [ ] **DATA-03**: User can query JSON files on S3/HDFS/local filesystem
-- [ ] **DATA-04**: User can query PostgreSQL via federated connector
-- [ ] **DATA-05**: User can query MySQL via federated connector
-
-### Advanced SQL
-
-- [ ] **ADV-01**: User can use window functions (ROW_NUMBER, RANK, DENSE_RANK, LEAD, LAG) with frames
-- [ ] **ADV-02**: User can use date/time functions (date_trunc, EXTRACT, date_diff) and string functions (SUBSTR, CONCAT, REGEXP)
-- [ ] **ADV-03**: User can use type conversion functions (CAST, TRY_CAST) and CASE/COALESCE/NVL expressions
-- [ ] **ADV-04**: User can use UDF/UDTF for custom transformations
-
-### Observability
-
-- [ ] **OBS-01**: User can execute EXPLAIN to see distributed query plan
-- [ ] **OBS-02**: System emits metrics (CPU, memory, rows processed per stage)
-- [ ] **OBS-03**: System provides structured logging with query tracing
-
-### Client Interface
-
-- [ ] **CLI-01**: User can use CLI to execute SQL queries interactively or in batch mode
-- [ ] **CLI-02**: User can use JDBC driver to connect from BI tools
-
-## v2 Requirements
-
-### SQL
-
-- **ADV-05**: APPROX_PERCENTILE, APPROX_DISTINCT for large-scale aggregation
-- **ADV-06**: PIVOT/UNPOT for cross-tab analysis
-
-### Data Sources
-
-- **DATA-06**: Iceberg connector with time travel support
-- **DATA-07**: Delta Lake support
-- **DATA-08**: Elasticsearch connector
-
-### Optimization
-
-- **OPT-01**: Cost-based optimizer rules for better plan selection
-- **OPT-02**: Predicate pushdown to filter data early
-- **OPT-03**: Projection pushdown (column pruning) for Parquet
-
-### HA & Reliability
-
-- **HA-01**: Multi-coordinator support with configurable consensus (external service or self-hosted Raft)
-- **HA-02**: Graceful coordinator failover
-- **HA-03**: Resource groups and query queuing for multi-tenant fairness
-
-### Advanced Client
-
-- **CLI-03**: HTTP API for thin client access
-- **CLI-04**: Prepared statement support
+- [ ] **CLEANUP-01**: 删除 `octopus-jdbc` crate 及相关代码
+- [ ] **CLEANUP-02**: 更新 `Cargo.toml` workspace 移除 jdbc member
+- [ ] **CLEANUP-03**: 清理 `octopus-cli` 仅保留 interactive/repl 模式（移除 batch 和 local 模式）
+- [ ] **CLEANUP-04**: 更新 wiki 中关于 JDBC 的描述
+- [ ] **CLEANUP-05**: 更新 CLAUDE.md 中关于 JDBC driver 的描述
 
 ## Out of Scope
 
 | Feature | Reason |
 |---------|--------|
-| Real-time Kafka streaming | Batch-first, streaming deferred |
-| Fine-grained checkpoint recovery | Fast-fail with task retry is sufficient |
-| Multi-language SDK | HTTP API only for v1 |
-| Graph/ML workloads | Pure SQL OLAP focus |
-| OLTP/transaction processing | Not designed for high-frequency single-row updates |
-| Native Graph processing | Use specialized graph databases |
+| JDBC 客户端支持 | 用户反馈实现有问题，Octopus 仅通过 HTTP API 提交查询 |
+| CLI batch 模式 | 用户反馈不需要，保留 interactive/repl 模式即可 |
+| CLI local 模式 | 用户反馈不需要，保留 interactive/repl 模式即可 |
 
 ## Traceability
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SQL-01 | Phase 1 | Pending |
-| SQL-02 | Phase 1 | Pending |
-| SQL-03 | Phase 1 | Pending |
-| SQL-04 | Phase 1 | Pending |
-| SQL-05 | Phase 1 | Pending |
-| DIST-01 | Phase 2 | Pending |
-| DIST-02 | Phase 2 | Pending |
-| DIST-03 | Phase 3 | Pending |
-| DIST-04 | Phase 3 | Pending |
-| DIST-05 | Phase 3 | Pending |
-| DATA-01 | Phase 1 | Pending |
-| DATA-02 | Phase 1 | Pending |
-| DATA-03 | Phase 1 | Pending |
-| DATA-04 | Phase 4 | Pending |
-| DATA-05 | Phase 4 | Pending |
-| ADV-01 | Phase 4 | Pending |
-| ADV-02 | Phase 4 | Pending |
-| ADV-03 | Phase 4 | Pending |
-| ADV-04 | Phase 5 | Pending |
-| OBS-01 | Phase 2 | Pending |
-| OBS-02 | Phase 3 | Pending |
-| OBS-03 | Phase 1 | Pending |
-| CLI-01 | Phase 2 | Pending |
-| CLI-02 | Phase 5 | Pending |
-
-**Coverage:**
-- v1 requirements: 24 total
-- Mapped to phases: 24
-- Unmapped: 0 ✓
+| CLEANUP-01 | — | — |
+| CLEANUP-02 | — | — |
+| CLEANUP-03 | — | — |
+| CLEANUP-04 | — | — |
+| CLEANUP-05 | — | — |
 
 ---
-*Requirements defined: 2026-04-22*
-*Last updated: 2026-04-22 after initial definition*
+*Requirements defined: 2026-05-21*
+*Last updated: 2026-05-21 during milestone v1.1 start*
