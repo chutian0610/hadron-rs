@@ -1,15 +1,14 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: 去除 JDBC 实现
+milestone: v1.2
+milestone_name: 测试覆盖与代码注释
 status: Defining requirements
-stopped_at: context exhaustion at 75% (2026-05-21)
-last_updated: "2026-05-21T12:19:13.075Z"
-last_activity: 2026-05-21 — Milestone v1.1 started
+last_updated: "2026-05-21T12:45:00.000Z"
+last_activity: 2026-05-21 — Milestone v1.2 started
 progress:
-  total_phases: 1
+  total_phases: 0
   completed_phases: 0
-  total_plans: 1
+  total_plans: 0
   completed_plans: 0
   percent: 0
 ---
@@ -18,17 +17,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-22)
+See: .planning/PROJECT.md (updated 2026-05-21)
 
 **Core value:** Users can run fast interactive SQL queries on large distributed datasets with Rust-level performance and memory safety.
-**Current focus:** Phase 03 - Workers + Arrow Flight
+**Current focus:** Phase 01 - 测试覆盖与代码注释
 
 ## Current Position
 
 Phase: Not started (defining requirements)
 Plan: —
 Status: Defining requirements
-Last activity: 2026-05-21 — Milestone v1.1 started
+Last activity: 2026-05-21 — Milestone v1.2 started
 
 ## Performance Metrics
 
@@ -71,6 +70,7 @@ Recent decisions affecting current work:
 - Phase 3: Task retry mechanism with same-worker-first strategy (DIST-05)
 - Phase 3: Metrics collection for CPU, memory, rows processed (OBS-02)
 - Phase 4: Federated connector traits foundation with type-erased connection pool
+- v1.1: JDBC 实现移除，CLI 仅保留 interactive/repl 模式
 
 ### Pending Todos
 
@@ -98,8 +98,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-05-21T12:19:13.071Z
-Stopped at: context exhaustion at 75% (2026-05-21)
+Last session: 2026-05-21T12:45:00.000Z
+Stopped at: New milestone v1.2 started
 Resume file: None
 
 ## Operator Next Steps
