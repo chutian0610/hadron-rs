@@ -1,0 +1,18 @@
+# Agent Wiki Configuration
+auto_update: true
+page_granularity: concept
+
+exclude:
+  - target/
+  - .git/
+  - "*.lock"
+  - ".planning/"
+
+concepts:
+  coordinator: [octopus-coordinator/]
+  executor: [octopus-executor/]
+  worker: [octopus-worker/]
+  cli: [octopus-cli/]
+  jdbc: [octopus-jdbc/]
+  common: [octopus-common/]
+  protocol: [proto/]

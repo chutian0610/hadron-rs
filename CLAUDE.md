@@ -68,3 +68,7 @@ Exchange operators define stage boundaries in distributed query plans. All opera
 ## DataFusion Version
 
 Currently using **DataFusion 43** (API-stable). All SQL execution uses `SessionContext::sql()` which parses SQL into LogicalPlan via DataFusion's built-in SQL planner.
+
+## Wiki
+
+The project maintains an auto-generated wiki in `wiki/`. The index is at `wiki/llms.txt`. When making significant changes to the codebase, update the wiki by running the `/autowiki:update` skill.
