@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: 测试覆盖与代码注释
-status: Defining requirements
-last_updated: "2026-05-21T12:45:00.000Z"
-last_activity: 2026-05-21 — Milestone v1.2 started
+status: Roadmap defined
+last_updated: "2026-05-21T13:00:00.000Z"
+last_activity: 2026-05-21 — Phase 2 Plan 01 complete (test infrastructure)
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -20,20 +20,20 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-21)
 
 **Core value:** Users can run fast interactive SQL queries on large distributed datasets with Rust-level performance and memory safety.
-**Current focus:** Phase 01 - 测试覆盖与代码注释
+**Current focus:** Phase 02 - Test Infrastructure (v1.2)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-05-21 — Milestone v1.2 started
+Phase: 2 (Test Infrastructure)
+Plan: Not started
+Status: Roadmap defined
+Last activity: 2026-05-21 — v1.2 roadmap created with 4 phases
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 10
+- Total plans completed: 10 (v1.0)
 - Average duration: 4 min/plan
 - Total execution time: 0.4 hours
 
@@ -45,11 +45,6 @@ Last activity: 2026-05-21 — Milestone v1.2 started
 | 02 | 3 | 3 | 4 min |
 | 03 | 4 | 5 | 5 min |
 | 04 | 3 | 3 | 5 min |
-
-**Recent Trend:**
-
-- Last 5 plans: All completed in single session
-- Trend: On track
 
 *Updated after each plan completion*
 
@@ -71,6 +66,7 @@ Recent decisions affecting current work:
 - Phase 3: Metrics collection for CPU, memory, rows processed (OBS-02)
 - Phase 4: Federated connector traits foundation with type-erased connection pool
 - v1.1: JDBC 实现移除，CLI 仅保留 interactive/repl 模式
+- v1.2: Testing infrastructure before unit tests (Phase 2 enables Phases 3-4)
 
 ### Pending Todos
 
@@ -96,12 +92,23 @@ Items acknowledged and carried forward from previous milestone close:
 | Phase 4 | PostgreSQL connector impl | Complete | Phase 4 Plan 02 |
 | Phase 4 | MySQL connector impl | Complete | Phase 4 Plan 03 |
 
+## v1.2 Phase Structure
+
+| Phase | Name | Goal | Requirements |
+|-------|------|------|--------------|
+| 2 | Test Infrastructure | Set up test utilities and mock infrastructure | None (foundational) |
+| 3 | Unit Tests | Comprehensive unit test coverage for all core components | COORD-01/02/03, EXEC-01/02, WORKER-01/02, COMMON-01/02/03 |
+| 4 | Integration Tests | End-to-end integration tests verifying component interactions | INTEG-01, INTEG-02 |
+| 5 | Documentation Pass | Public APIs documented with Rustdoc | DOC-01/02/03/04 |
+
+**Coverage:** 16/16 requirements mapped
+
 ## Session Continuity
 
-Last session: 2026-05-21T12:45:00.000Z
-Stopped at: New milestone v1.2 started
+Last session: 2026-05-21T13:00:00.000Z
+Stopped at: v1.2 roadmap created, ready to start Phase 2 planning
 Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Start planning Phase 2 with /gsd-plan-phase 2
