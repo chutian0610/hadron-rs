@@ -21,3 +21,13 @@
 - 1. [Rule 2 - Missing] Add tokio dev dependency for async tests
 
 ---
+
+## v1.1 去除 JDBC 实现 (Shipped: 2026-05-21)
+
+**Phases completed:** 1 phase, 1 plan
+
+**Key accomplishments:**
+- 删除 `octopus-jdbc` crate
+- 更新 `Cargo.toml` workspace
+- 清理 `octopus-cli` 保留 interactive/repl 模式
+- 移除 wiki 和 CLAUDE.md 中 JDBC 描述
