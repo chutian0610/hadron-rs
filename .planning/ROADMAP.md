@@ -25,6 +25,11 @@
 
 **Goal:** 移除 octopus-jdbc 模块和 CLI 中不需要的模式
 
+**Plans:** 1 plan
+
+Plans:
+- [ ] 01-清理-JDBC-和-CLI-模式/01-01-PLAN.md — 删除 JDBC crate 并清理 CLI 模式
+
 **Requirements:**
 - [CLEANUP-01] 删除 `octopus-jdbc` crate 及相关代码
 - [CLEANUP-02] 更新 `Cargo.toml` workspace 移除 jdbc member
