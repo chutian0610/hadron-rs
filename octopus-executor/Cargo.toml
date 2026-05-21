@@ -35,3 +35,6 @@ mysql_async = "0.36"
 
 [dev-dependencies]
 tokio-test = "0.4"
+octopus-common = { path = "../octopus-common", features = ["test-utils"] }
+mockall = "0.13"
+tempfile = "3"

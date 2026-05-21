@@ -27,3 +27,9 @@ serde_json = { workspace = true }
 arrow = { workspace = true }
 arrow-flight = { workspace = true }
 async-stream = "0.3"
+
+[dev-dependencies]
+tokio-test = "0.4"
+octopus-common = { path = "../octopus-common", features = ["test-utils"] }
+tower-test = "0.4"
+portpicker = "0.1"

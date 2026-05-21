@@ -20,5 +20,10 @@ datafusion = { workspace = true }
 datafusion-expr = { workspace = true }
 datafusion-common = { workspace = true }
 
+[features]
+test-utils = []
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
+mockall = { workspace = true }
+tempfile = { workspace = true }
