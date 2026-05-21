@@ -24,7 +24,6 @@ members = [
     "octopus-executor",
     "octopus-worker",
     "octopus-cli",
-    "octopus-jdbc",
     "octopus-common",
     "proto",
 ]
@@ -71,7 +70,7 @@ Worker process for distributed execution.
 
 ### octopus-cli
 
-Client CLI with local/interactive/batch modes.
+Client CLI for interactive query execution.
 
 **Key dependencies:**
 - `reqwest` - HTTP client
@@ -79,16 +78,6 @@ Client CLI with local/interactive/batch modes.
 - `rustyline` - REPL support
 
 **Source:** `octopus-cli/`
-
-### octopus-jdbc
-
-JDBC Type 4 driver implementation.
-
-**Key dependencies:**
-- `jni` - Java Native Interface
-- `arrow` - Arrow format for data transfer
-
-**Source:** `octopus-jdbc/`
 
 ### octopus-common
 
@@ -124,7 +113,6 @@ octopus-coordinator ──────→ octopus-common
 octopus-executor ────────→ octopus-common
 octopus-worker ──────────→ octopus-common, octopus-executor
 octopus-cli ─────────────→ octopus-common
-octopus-jdbc ────────────→ octopus-common
 ```
 
 ## External Dependencies

@@ -13,36 +13,6 @@ related:
 
 The Octopus CLI (`octopus-cli`) provides multiple modes for interacting with the distributed query engine.
 
-## CLI Modes
-
-### Local Mode
-
-Executes queries directly via DataFusion without the coordinator. Useful for testing and single-node execution.
-
-```bash
-cargo run -p octopus-cli -- --mode local
-```
-
-### Interactive Mode
-
-REPL-style interface for running queries against a coordinator. Supports command history and completion.
-
-```bash
-cargo run -p octopus-cli -- --mode interactive --host localhost --port 50051
-```
-
-### Batch Mode
-
-Executes SQL from a file or stdin without interactive prompts.
-
-```bash
-# From file
-cargo run -p octopus-cli -- --mode batch --file queries.sql
-
-# From stdin
-echo "SELECT 1;" | cargo run -p octopus-cli -- --mode batch
-```
-
 ## CLI Options
 
 ```
@@ -94,25 +64,7 @@ cargo run -p octopus-cli -- --mode batch --output csv --file query.sql > output.
 cargo run -p octopus-cli -- --mode batch --output json --file query.sql
 ```
 
-## Connection via JDBC
-
-For Java applications, use the JDBC driver:
-
-```java
-// Connection URL format
-String url = "jdbc:octopus://localhost:50051";
-
-// Connect
-Connection conn = DriverManager.getConnection(url);
-
-// Execute query
-Statement stmt = conn.createStatement();
-ResultSet rs = stmt.executeQuery("SELECT * FROM orders");
-```
-
-See [[Reference/Crates]] for JDBC driver details.
-
-## Error Handling
+## Interactive Mode Commands
 
 CLI reports errors with context:
 

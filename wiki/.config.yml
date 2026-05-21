@@ -13,6 +13,5 @@ concepts:
   executor: [octopus-executor/]
   worker: [octopus-worker/]
   cli: [octopus-cli/]
-  jdbc: [octopus-jdbc/]
   common: [octopus-common/]
   protocol: [proto/]
