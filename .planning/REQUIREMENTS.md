@@ -30,7 +30,7 @@
 
 ### Integration Tests
 
-- [ ] **INTEG-01**: End-to-end query execution test (coordinator → worker → response)
+- [ ] **INTEG-01**: End-to-end query execution test (coordinator to worker to response)
 - [ ] **INTEG-02**: CLI integration tests using assert_cmd
 
 ## Documentation Requirements
@@ -55,28 +55,28 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| COORD-01 | — | — |
-| COORD-02 | — | — |
-| COORD-03 | — | — |
-| EXEC-01 | — | — |
-| EXEC-02 | — | — |
-| WORKER-01 | — | — |
-| WORKER-02 | — | — |
-| COMMON-01 | — | — |
-| COMMON-02 | — | — |
-| COMMON-03 | — | — |
-| INTEG-01 | — | — |
-| INTEG-02 | — | — |
-| DOC-01 | — | — |
-| DOC-02 | — | — |
-| DOC-03 | — | — |
-| DOC-04 | — | — |
+| COORD-01 | Phase 3 | Pending |
+| COORD-02 | Phase 3 | Pending |
+| COORD-03 | Phase 3 | Pending |
+| EXEC-01 | Phase 3 | Pending |
+| EXEC-02 | Phase 3 | Pending |
+| WORKER-01 | Phase 3 | Pending |
+| WORKER-02 | Phase 3 | Pending |
+| COMMON-01 | Phase 3 | Pending |
+| COMMON-02 | Phase 3 | Pending |
+| COMMON-03 | Phase 3 | Pending |
+| INTEG-01 | Phase 4 | Pending |
+| INTEG-02 | Phase 4 | Pending |
+| DOC-01 | Phase 5 | Pending |
+| DOC-02 | Phase 5 | Pending |
+| DOC-03 | Phase 5 | Pending |
+| DOC-04 | Phase 5 | Pending |
 
 **Coverage:**
 - v1.2 requirements: 16 total
-- Mapped to phases: 0
-- Unmapped: 16 ⚠️
+- Mapped to phases: 16 ✓
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-05-21*
-*Last updated: 2026-05-21 after initial definition*
+*Last updated: 2026-05-21 after v1.2 roadmap created*
