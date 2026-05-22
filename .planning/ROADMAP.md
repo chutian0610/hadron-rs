@@ -16,7 +16,7 @@
 | 4 | v1.0 | 4/4 | Complete | 2026-05-12 |
 | 5 | v1.0 | 2/2 | Complete | 2026-05-13 |
 | 2 | v1.2 | 3/3 | Complete | 2026-05-21 | |
-| 3 | v1.2 | 0/6 | Not started | — |
+| 3 | v1.2 | 5/5 | Planned | — |
 | 4 | v1.2 | 0/2 | Not started | — |
 | 5 | v1.2 | 0/1 | Not started | — |
 
@@ -68,8 +68,12 @@
 9. Federated connector trait tests pass with mockall
 10. OctopusError error path tests pass
 
-**Plans:** TBD
-**UI hint:** yes (HTTP API endpoint tests involve UI components)
+**Plans:** 5 plans in 3 waves
+- [ ] 03-01-PLAN.md — QueryScheduler and QueryService unit tests (COORD-01, COORD-02)
+- [ ] 03-02-PLAN.md — HTTP API endpoint tests with tower-test (COORD-03)
+- [ ] 03-03-PLAN.md — ExecutorSession and ExchangeOperator tests (EXEC-01, EXEC-02)
+- [ ] 03-04-PLAN.md — Common crate tests: UDF, FederatedConnector, OctopusError (COMMON-01, COMMON-02, COMMON-03)
+- [ ] 03-05-PLAN.md — Worker crate tests: WorkerService, FlightHandler (WORKER-01, WORKER-02)
 
 ---
 
@@ -127,4 +131,4 @@
 
 ---
 
-*Last updated: 2026-05-21 after v1.2 roadmap created*
+*Last updated: 2026-05-22 after Phase 3 planning*
